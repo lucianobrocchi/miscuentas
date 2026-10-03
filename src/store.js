@@ -22,6 +22,7 @@ export const emptyState = () => ({
   expenses: [],
   installments: [],
   debts: [],
+  receivables: [],
 });
 
 export function load() {

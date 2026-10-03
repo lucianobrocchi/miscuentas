@@ -83,3 +83,23 @@ test('compare: un gasto mensual nuevo atrasa la libertad', () => {
   assert.ok(c.delayMonths > 0);
   assert.ok(c.extraInterest > 0);
 });
+
+test('lo que le deben entra como cobro mensual y se termina', () => {
+  const st = base();
+  st.receivables = [{ id: 'r', person: 'Hijo', name: 'Préstamo', balance: 250, monthlyPayment: 100, rate: 0 }];
+  const r = simulate(st);
+  assert.equal(r.months[0].collections, 100);
+  assert.equal(r.months[0].free, 1100);
+  assert.equal(r.months[2].collections, 50);
+  assert.equal(r.months[2].owed, 0);
+  assert.equal(r.months[3].collections, 0);
+  assert.equal(r.receivables[0].paidOn, '2026-12');
+});
+
+test('lo que le deben sin cuota pactada no entra y acumula interés', () => {
+  const st = base();
+  st.receivables = [{ id: 'r', person: 'Hijo', name: 'P', balance: 1000, monthlyPayment: 0, rate: 10 }];
+  const m = simulate(st).months;
+  assert.equal(m[0].collections, 0);
+  assert.ok(Math.abs(m[1].owed - 1210) < 0.01);
+});

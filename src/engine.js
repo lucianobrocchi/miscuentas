@@ -41,6 +41,7 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
   const buffer = Number(s.buffer) || 0;
   let cash = Number(s.cash) || 0;
 
+  const recv = (state.receivables || []).map((r) => ({ ...r, bal: Number(r.balance) || 0, paidOn: null }));
   const debts = state.debts.map((d) => ({ ...d, bal: Number(d.balance) || 0, paidOn: null }));
   // Si el hogar gasta más de lo que entra, el faltante se financia (tarjeta u otra deuda).
   const deficitRate = Number(s.deficitRate) || 0;
@@ -61,6 +62,21 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
     }
     totalInterest += interest;
 
+    // Lo que le deben a la familia: acumula interés (si lo hay) y se cobra la cuota pactada.
+    let collections = 0;
+    for (const r of recv) {
+      if (r.bal > EPS) {
+        r.bal += (r.bal * (Number(r.rate) || 0)) / 100;
+        const c = Math.min(Number(r.monthlyPayment) || 0, r.bal);
+        r.bal -= c;
+        collections += c;
+        if (r.bal <= EPS) {
+          r.bal = 0;
+          r.paidOn = key;
+        }
+      }
+    }
+
     const income = sum(state.incomes.filter((x) => isActive(x, key)));
     const allExp = [...state.expenses, ...extraExpenses].filter((x) => isActive(x, key));
     const expenses = sum(allExp);
@@ -77,7 +93,7 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
       }
     }
 
-    let free = income - expenses - installments - minPaid;
+    let free = income + collections - expenses - installments - minPaid;
     let extraPaid = 0;
     let shortfall = 0;
 
@@ -119,6 +135,8 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
     months.push({
       key,
       income,
+      collections,
+      owed: recv.reduce((a, r) => a + r.bal, 0),
       expenses,
       installments,
       installmentCount: insts.length,
@@ -139,6 +157,7 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
 
   return {
     months,
+    receivables: recv.map((r) => ({ id: r.id, person: r.person, name: r.name, bal: r.bal, paidOn: r.paidOn })),
     debts: final.map((d) => ({ id: d.id, name: d.name, paidOn: d.paidOn })),
     debtFreeMonth: firstClearMonth(months),
     totalInterest,
@@ -201,6 +220,7 @@ export function compare(state, extraExpenses) {
 
 export function totals(state) {
   return {
+    owed: (state.receivables || []).reduce((a, r) => a + (Number(r.balance) || 0), 0),
     debt: state.debts.reduce((a, d) => a + (Number(d.balance) || 0), 0),
     monthlyInterest: state.debts.reduce((a, d) => a + ((Number(d.balance) || 0) * (Number(d.rate) || 0)) / 100, 0),
   };

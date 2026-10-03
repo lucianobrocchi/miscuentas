@@ -17,7 +17,7 @@ const commit = () => { save(state); render(); };
 
 const TABS = [
   ['resumen', 'Resumen'], ['ingresos', 'Ingresos'], ['gastos', 'Gastos'],
-  ['cuotas', 'Cuotas'], ['deudas', 'Deudas'], ['simulador', '¿Me lo puedo permitir?'], ['ajustes', 'Ajustes'],
+  ['cuotas', 'Cuotas'], ['deudas', 'Deudas'], ['medeben', 'Me deben'], ['simulador', '¿Me lo puedo permitir?'], ['ajustes', 'Ajustes'],
 ];
 
 // ---------- esquemas de formularios ----------
@@ -58,6 +58,17 @@ const SECTIONS = {
     ],
     line: (x) => [x.name, `${x.owner || ''} · ${x.remaining} cuotas · se libera en ${mname(addMonths(installmentEnd(x), 1))}`, money(x.amount) + '/mes'],
   },
+  medeben: {
+    list: 'receivables', title: 'Lo que le deben a ella', add: 'Agregar deuda de alguien',
+    fields: () => [
+      { k: 'person', label: '¿Quién le debe?', type: 'select', options: people().map((p) => [p, p]) },
+      { k: 'name', label: 'Concepto', type: 'text', req: true },
+      { k: 'balance', label: 'Cuánto debe hoy', type: 'money', req: true },
+      { k: 'monthlyPayment', label: 'Cuánto le devuelve por mes', type: 'money', hint: 'Lo que se comprometió a pagar. Si todavía no hay acuerdo, 0: así se ve que esa plata no está entrando.' },
+      { k: 'rate', label: 'Interés mensual (%) que se le suma', type: 'rate', hint: 'Si no se cobra interés, 0.' },
+    ],
+    line: (x) => [`${x.person}: ${x.name}`, x.monthlyPayment ? `devuelve ${money(x.monthlyPayment)} por mes${x.rate ? ' · interés ' + x.rate + '%' : ''}` : '⚠ sin cuota pactada: no está entrando plata', money(x.balance)],
+  },
   deudas: {
     list: 'debts', title: 'Deudas', add: 'Agregar deuda',
     fields: () => [
@@ -97,12 +108,13 @@ function viewList(key) {
     const m = simulate(state).months[0];
     total = `<p class="note">Este mes (${esc(mname(m.key))}): ${money(key === 'ingresos' ? m.income : m.expenses)}</p>`;
   }
+  if (key === 'medeben') total = `<p class="note">Total que le deben: ${money(totals(state).owed)}. Este mes entran ${money(simulate(state).months[0].collections)}.</p>`;
   return `<h2>${sec.title}</h2>${total}<div class="card">${rows || '<p class="note">Todavía no cargaste nada.</p>'}</div>
     <div class="actions"><button class="p" data-add="${key}">+ ${sec.add}</button></div>`;
 }
 
 function viewResumen() {
-  if (!state.incomes.length && !state.debts.length) {
+  if (!state.incomes.length && !state.debts.length && !(state.receivables || []).length) {
     return `<div class="card"><p class="big"><b>Bienvenida 👋</b></p>
       <p>Para ver cómo te va a ir en los próximos meses, cargá: <b>1)</b> tus ingresos, <b>2)</b> tus gastos, <b>3)</b> las compras en cuotas y <b>4)</b> las deudas (tarjeta, préstamos).</p>
       <div class="actions"><button class="p" data-tab="ingresos">Empezar por los ingresos</button><button class="s" data-demo>Ver un ejemplo</button></div></div>`;
@@ -118,6 +130,7 @@ function viewResumen() {
     <div class="card kpi"><small>Deuda hoy</small><b>${money(t.debt)}</b></div>
     <div class="card kpi ${free ? 'ok' : 'bad'}"><small>Libre de deudas</small><b>${free ? esc(mname(free)) : 'No alcanza'}</b>
       <small>${free ? 'en ' + (monthDiff(state.settings.start, free) + 1) + ' meses' : 'con este ritmo la deuda no termina'}</small></div>
+    ${t.owed ? `<div class="card kpi"><small>Le deben a ella</small><b>${money(t.owed)}</b><small>${state.receivables.some((x) => !x.monthlyPayment) ? '⚠ hay deudas sin cuota pactada' : 'se va cobrando mes a mes'}</small></div>` : ''}
     <div class="card kpi"><small>Interés total que vas a pagar</small><b>${money(r.totalInterest)}</b>
       ${none.months[h - 1].debtTotal > ms[h - 1].debtTotal ? `<small>Sin plan, en ${h} meses la deuda estaría en ${money(none.months[h - 1].debtTotal)} (con plan: ${money(ms[h - 1].debtTotal)})</small>` : ''}</div>
   </div>`;
@@ -128,10 +141,11 @@ function viewResumen() {
     const ev = [
       ...m.freedInstallments.map((i) => `🎉 Se terminó la cuota de ${esc(i.name)}: liberás ${money(i.amount)}/mes`),
       ...r.debts.filter((d) => d.paidOn === m.key).map((d) => `🎉 Se termina de pagar: ${esc(d.name)}`),
+      ...r.receivables.filter((x) => x.paidOn === m.key).map((x) => `💚 ${esc(x.person)} termina de devolverle: ${esc(x.name)}`),
     ];
     return `<div class="m ${m.status}"><span class="name">${esc(mname(m.key))}</span>
       <span class="free">${m.free >= 0 ? 'Sobran ' : 'Faltan '}${money(Math.abs(m.free))}</span>
-      <span class="det">Entra ${money(m.income)} · Gastos ${money(m.expenses)} · Cuotas ${money(m.installments)} · A deudas ${money(m.debtPayments)} · Deuda al cierre ${money(m.debtTotal)}</span>
+      <span class="det">Entra ${money(m.income)}${m.collections ? ' + ' + money(m.collections) + ' que le devuelven' : ''} · Gastos ${money(m.expenses)} · Cuotas ${money(m.installments)} · A deudas ${money(m.debtPayments)} · Deuda al cierre ${money(m.debtTotal)}</span>
       ${ev.map((e) => `<span class="ev">${e}</span>`).join('')}</div>`;
   }).join('');
   return `${kpis}${alert}<h2>Mes por mes</h2><div class="months">${cards}</div>
