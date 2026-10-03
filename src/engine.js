@@ -1,0 +1,207 @@
+// Motor de proyección. Funciones puras, sin DOM: todo el cálculo vive acá.
+
+export const MAX_MONTHS = 120;
+
+export function addMonths(key, n) {
+  const [y, m] = key.split('-').map(Number);
+  const d = y * 12 + (m - 1) + n;
+  return `${Math.floor(d / 12)}-${String((d % 12) + 1).padStart(2, '0')}`;
+}
+
+export function monthDiff(a, b) {
+  const [ya, ma] = a.split('-').map(Number);
+  const [yb, mb] = b.split('-').map(Number);
+  return (yb - ya) * 12 + (mb - ma);
+}
+
+const monthNum = (key) => Number(key.split('-')[1]);
+
+// Un ítem recurrente está activo en un mes si cae en [from, to] y en los meses elegidos
+// (months vacío/ausente = todos los meses; ej. aguinaldo = [6, 12]).
+export function isActive(item, key) {
+  if (item.from && key < item.from) return false;
+  if (item.to && key > item.to) return false;
+  if (item.months && item.months.length && !item.months.includes(monthNum(key))) return false;
+  return true;
+}
+
+export const installmentEnd = (i) => addMonths(i.first, i.remaining - 1);
+export const installmentActive = (i, key) => key >= i.first && key <= installmentEnd(i);
+
+const EPS = 0.005;
+
+/**
+ * Simula mes a mes.
+ * state: { settings, incomes, expenses, installments, debts }
+ * extra: gastos hipotéticos (misma forma que expenses) para el simulador "¿me lo puedo permitir?"
+ */
+export function simulate(state, { extraExpenses = [], strategy } = {}) {
+  const s = state.settings;
+  const strat = strategy ?? s.strategy;
+  const buffer = Number(s.buffer) || 0;
+  let cash = Number(s.cash) || 0;
+
+  const debts = state.debts.map((d) => ({ ...d, bal: Number(d.balance) || 0, paidOn: null }));
+  // Si el hogar gasta más de lo que entra, el faltante se financia (tarjeta u otra deuda).
+  const deficitRate = Number(s.deficitRate) || 0;
+  let deficitDebt = null;
+
+  const months = [];
+  let totalInterest = 0;
+  let key = s.start;
+
+  for (let i = 0; i < MAX_MONTHS; i++, key = addMonths(key, 1)) {
+    let interest = 0;
+    for (const d of allDebts()) {
+      if (d.bal > EPS) {
+        const it = (d.bal * (Number(d.rate) || 0)) / 100;
+        d.bal += it;
+        interest += it;
+      }
+    }
+    totalInterest += interest;
+
+    const income = sum(state.incomes.filter((x) => isActive(x, key)));
+    const allExp = [...state.expenses, ...extraExpenses].filter((x) => isActive(x, key));
+    const expenses = sum(allExp);
+    const insts = state.installments.filter((x) => installmentActive(x, key));
+    const installments = insts.reduce((a, x) => a + Number(x.amount), 0);
+    const freedInst = state.installments.filter((x) => installmentEnd(x) === addMonths(key, -1));
+
+    let minPaid = 0;
+    for (const d of allDebts()) {
+      if (d.bal > EPS) {
+        const p = Math.min(Number(d.minPayment) || 0, d.bal);
+        d.bal -= p;
+        minPaid += p;
+      }
+    }
+
+    let free = income - expenses - installments - minPaid;
+    let extraPaid = 0;
+    let shortfall = 0;
+
+    if (free < 0) {
+      shortfall = -free;
+      const fromCash = Math.min(Math.max(cash, 0), shortfall);
+      cash -= fromCash;
+      const financed = shortfall - fromCash;
+      if (financed > EPS) {
+        const target = financingTarget();
+        target.bal += financed;
+      }
+    } else {
+      const reserve = Math.min(free, buffer);
+      let avail = free - reserve;
+      cash += reserve;
+      if (strat !== 'none') {
+        for (const d of order(allDebts())) {
+          if (avail <= EPS) break;
+          if (d.bal > EPS) {
+            const p = Math.min(avail, d.bal);
+            d.bal -= p;
+            avail -= p;
+            extraPaid += p;
+          }
+        }
+      }
+      cash += avail; // lo que sobra sin deudas que pagar o sin estrategia
+    }
+
+    for (const d of allDebts()) {
+      if (d.bal <= EPS && d.paidOn === null && (Number(d.balance) > 0 || d === deficitDebt)) {
+        d.bal = 0;
+        d.paidOn = key;
+      }
+    }
+
+    const debtTotal = allDebts().reduce((a, d) => a + d.bal, 0);
+    months.push({
+      key,
+      income,
+      expenses,
+      installments,
+      installmentCount: insts.length,
+      freedInstallments: freedInst,
+      debtPayments: minPaid + extraPaid,
+      interest,
+      free,
+      shortfall,
+      cash,
+      debtTotal,
+      debts: Object.fromEntries(allDebts().map((d) => [d.id, d.bal])),
+      status: free < 0 ? 'bad' : free < buffer ? 'tight' : 'ok',
+    });
+
+  }
+
+  const final = allDebts();
+
+  return {
+    months,
+    debts: final.map((d) => ({ id: d.id, name: d.name, paidOn: d.paidOn })),
+    debtFreeMonth: firstClearMonth(months),
+    totalInterest,
+  };
+
+  // --- helpers (cierran sobre el estado de la simulación) ---
+  function allDebts() {
+    return deficitDebt ? [...debts, deficitDebt] : debts;
+  }
+  function financingTarget() {
+    const card = debts.find((d) => d.kind === 'card' && d.bal > EPS) || debts.find((d) => d.kind === 'card');
+    if (card) {
+      card.paidOn = null;
+      return card;
+    }
+    if (!deficitDebt) {
+      deficitDebt = { id: '_deficit', name: 'Faltante financiado', kind: 'other', rate: deficitRate, minPayment: 0, bal: 0, paidOn: null, balance: 0 };
+    }
+    deficitDebt.paidOn = null;
+    return deficitDebt;
+  }
+  function order(list) {
+    const l = list.filter((d) => d.bal > EPS);
+    if (strat === 'snowball') return l.sort((a, b) => a.bal - b.bal);
+    return l.sort((a, b) => (Number(b.rate) || 0) - (Number(a.rate) || 0)); // avalancha: mayor interés primero
+  }
+}
+
+function sum(items) {
+  return items.reduce((a, x) => a + (Number(x.amount) || 0), 0);
+}
+
+// Primer mes a partir del cual ya no hay deuda (y no vuelve a aparecer).
+function firstClearMonth(months) {
+  for (let i = 0; i < months.length; i++) {
+    if (months.slice(i).every((m) => m.debtTotal <= EPS)) return months[i].key;
+  }
+  return null;
+}
+
+/** Compara el plan actual contra "no hacer nada extra" y contra un gasto hipotético. */
+export function compare(state, extraExpenses) {
+  const base = simulate(state);
+  const withExtra = simulate(state, { extraExpenses });
+  const negBase = base.months.filter((m) => m.free < 0).map((m) => m.key);
+  const negExtra = withExtra.months.filter((m) => m.free < 0).map((m) => m.key);
+  return {
+    base,
+    withExtra,
+    delayMonths:
+      base.debtFreeMonth && withExtra.debtFreeMonth
+        ? monthDiff(base.debtFreeMonth, withExtra.debtFreeMonth)
+        : withExtra.debtFreeMonth === base.debtFreeMonth
+        ? 0
+        : null,
+    extraInterest: withExtra.totalInterest - base.totalInterest,
+    newNegativeMonths: negExtra.filter((k) => !negBase.includes(k)),
+  };
+}
+
+export function totals(state) {
+  return {
+    debt: state.debts.reduce((a, d) => a + (Number(d.balance) || 0), 0),
+    monthlyInterest: state.debts.reduce((a, d) => a + ((Number(d.balance) || 0) * (Number(d.rate) || 0)) / 100, 0),
+  };
+}
