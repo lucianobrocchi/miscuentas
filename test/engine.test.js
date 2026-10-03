@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { simulate, compare, addMonths, isActive, installmentEnd } from '../src/engine.js';
+import { simulate, compare, addMonths, isActive, installmentEnd, amountFor } from '../src/engine.js';
 
 const base = () => ({
   settings: { start: '2026-10', buffer: 0, cash: 0, strategy: 'avalanche', deficitRate: 0 },
@@ -102,4 +102,17 @@ test('lo que le deben sin cuota pactada no entra y acumula interés', () => {
   const m = simulate(st).months;
   assert.equal(m[0].collections, 0);
   assert.ok(Math.abs(m[1].owed - 1210) < 0.01);
+});
+
+test('montos distintos en meses puntuales (enero sin movilidad)', () => {
+  const st = base();
+  st.incomes = [
+    { id: 'i1', name: 'Sueldo', amount: 1000 },
+    { id: 'i2', name: 'Movilidad', amount: 400, overrides: { '2027-01': 0, '2026-12': 300 } },
+  ];
+  const m = simulate(st).months;
+  assert.equal(m[0].income, 1400); // oct
+  assert.equal(m[2].income, 1300); // dic con menos
+  assert.equal(m[3].income, 1000); // enero sin movilidad
+  assert.equal(amountFor(st.incomes[1], '2027-02'), 400);
 });

@@ -25,6 +25,12 @@ export function isActive(item, key) {
   return true;
 }
 
+// Monto de un ítem en un mes: permite montos distintos mes a mes (movilidad con feriados, vacaciones, enero sin movilidad).
+export const amountFor = (item, key) => {
+  const o = item.overrides?.[key];
+  return o === undefined || o === null ? Number(item.amount) || 0 : Number(o) || 0;
+};
+
 export const installmentEnd = (i) => addMonths(i.first, i.remaining - 1);
 export const installmentActive = (i, key) => key >= i.first && key <= installmentEnd(i);
 
@@ -77,9 +83,9 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
       }
     }
 
-    const income = sum(state.incomes.filter((x) => isActive(x, key)));
+    const income = sum(state.incomes.filter((x) => isActive(x, key)), key);
     const allExp = [...state.expenses, ...extraExpenses].filter((x) => isActive(x, key));
-    const expenses = sum(allExp);
+    const expenses = sum(allExp, key);
     const insts = state.installments.filter((x) => installmentActive(x, key));
     const installments = insts.reduce((a, x) => a + Number(x.amount), 0);
     const freedInst = state.installments.filter((x) => installmentEnd(x) === addMonths(key, -1));
@@ -186,8 +192,8 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
   }
 }
 
-function sum(items) {
-  return items.reduce((a, x) => a + (Number(x.amount) || 0), 0);
+function sum(items, key) {
+  return items.reduce((a, x) => a + amountFor(x, key), 0);
 }
 
 // Primer mes a partir del cual ya no hay deuda (y no vuelve a aparecer).

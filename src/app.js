@@ -34,7 +34,7 @@ const SECTIONS = {
       { k: 'from', label: 'Desde (opcional)', type: 'month' },
       { k: 'to', label: 'Hasta (opcional)', type: 'month' },
     ],
-    line: (x) => [x.name, `${x.owner || ''} · ${x.months?.length ? 'jun y dic' : 'mensual'}${x.to ? ' · hasta ' + mname(x.to) : ''}`, money(x.amount)],
+    line: (x) => [x.name, `${x.owner || ''} · ${x.months?.length ? 'jun y dic' : 'mensual'}${x.to ? ' · hasta ' + mname(x.to) : ''}${Object.keys(x.overrides || {}).length ? ' · ' + Object.keys(x.overrides).length + ' mes(es) con otro monto' : ''}`, money(x.amount)],
   },
   gastos: {
     list: 'expenses', title: 'Gastos', add: 'Agregar gasto',
@@ -101,15 +101,16 @@ function viewList(key) {
   const rows = items.map((x) => {
     const [a, b, c] = sec.line(x);
     return `<div class="row"><div class="l"><b>${esc(a)}</b><span>${esc(b)}</span></div><div class="r"><b>${esc(c)}</b><br>
-      <button class="link" data-edit="${key}:${x.id}">Editar</button><button class="link del" data-del="${key}:${x.id}">Borrar</button></div></div>`;
+      <button class="link" data-edit="${key}:${x.id}">Editar</button>${key === 'ingresos' || key === 'gastos' ? `<button class="link" data-adj="${key}:${x.id}">Otro monto en un mes</button>` : ''}<button class="link del" data-del="${key}:${x.id}">Borrar</button></div></div>`;
   }).join('');
+  const adjusted = items.filter((x) => Object.keys(x.overrides || {}).length).map((x) => `<div class="row"><div class="l"><b>${esc(x.name)}: meses con otro monto</b><span>${Object.keys(x.overrides).sort().map((k) => `${esc(mname(k))}: ${money(x.overrides[k])}`).join(' · ')}</span></div><div class="r"><button class="link del" data-clradj="${key}:${x.id}">Quitar</button></div></div>`).join('');
   let total = '';
   if (key === 'ingresos' || key === 'gastos') {
     const m = simulate(state).months[0];
     total = `<p class="note">Este mes (${esc(mname(m.key))}): ${money(key === 'ingresos' ? m.income : m.expenses)}</p>`;
   }
   if (key === 'medeben') total = `<p class="note">Total que le deben: ${money(totals(state).owed)}. Este mes entran ${money(simulate(state).months[0].collections)}.</p>`;
-  return `<h2>${sec.title}</h2>${total}<div class="card">${rows || '<p class="note">Todavía no cargaste nada.</p>'}</div>
+  return `<h2>${sec.title}</h2>${total}<div class="card">${rows || '<p class="note">Todavía no cargaste nada.</p>'}</div>${adjusted ? `<div class="card">${adjusted}</div>` : ''}
     <div class="actions"><button class="p" data-add="${key}">+ ${sec.add}</button></div>`;
 }
 
@@ -261,6 +262,17 @@ document.addEventListener('click', (e) => {
     const sec = SECTIONS[k];
     const item = state[sec.list].find((x) => x.id === id);
     openForm('Editar', sec.fields(), item, (v) => { Object.assign(item, v); commit(); });
+  } else if (d.adj) {
+    const [k, id] = d.adj.split(':');
+    const item = state[SECTIONS[k].list].find((x) => x.id === id);
+    openForm(`${item.name}: otro monto en un mes`, [
+      { k: 'month', label: 'Mes', type: 'month', req: true },
+      { k: 'amount', label: `Cuánto cobra/gasta ese mes (normalmente ${money(item.amount)}; poné 0 si no hay)`, type: 'money', req: true },
+    ], {}, (v) => { item.overrides = { ...(item.overrides || {}), [v.month]: v.amount }; commit(); });
+  } else if (d.clradj) {
+    const [k, id] = d.clradj.split(':');
+    delete state[SECTIONS[k].list].find((x) => x.id === id).overrides;
+    commit();
   } else if (d.del) {
     const [k, id] = d.del.split(':');
     const sec = SECTIONS[k];
