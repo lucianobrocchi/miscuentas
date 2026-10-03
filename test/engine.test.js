@@ -1,6 +1,7 @@
 import test from 'node:test';
+import { workdays } from '../src/calendar.js';
 import assert from 'node:assert/strict';
-import { simulate, compare, addMonths, isActive, installmentEnd, amountFor } from '../src/engine.js';
+import { simulate, compare, addMonths, isActive, installmentEnd, amountFor, daysFor } from '../src/engine.js';
 
 const base = () => ({
   settings: { start: '2026-10', buffer: 0, cash: 0, strategy: 'avalanche', deficitRate: 0 },
@@ -115,4 +116,19 @@ test('montos distintos en meses puntuales (enero sin movilidad)', () => {
   assert.equal(m[2].income, 1300); // dic con menos
   assert.equal(m[3].income, 1000); // enero sin movilidad
   assert.equal(amountFor(st.incomes[1], '2027-02'), 400);
+});
+
+test('días hábiles: octubre 2026 tiene 21 (feriado 12/10)', () => {
+  assert.equal(workdays('2026-10'), 21);
+  assert.equal(workdays('2026-11'), 20);
+  assert.equal(workdays('2026-12'), 21);
+});
+
+test('pago por día: feriados, julio con 15 días y enero sin movilidad', () => {
+  const it = { perDay: 1000, days: { '2027-07': 15, '2027-01': 0 } };
+  assert.equal(amountFor(it, '2026-10'), 21000);
+  assert.equal(amountFor(it, '2027-07'), 15000);
+  assert.equal(amountFor(it, '2027-01'), 0);
+  assert.equal(daysFor(it, '2026-11'), 20);
+  assert.equal(amountFor({ ...it, overrides: { '2026-10': 5 } }, '2026-10'), 5); // el monto fijo manda
 });

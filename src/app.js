@@ -1,4 +1,4 @@
-import { simulate, compare, totals, installmentEnd, addMonths, monthDiff } from './engine.js';
+import { simulate, compare, totals, amountFor, daysFor, installmentEnd, addMonths, monthDiff } from './engine.js';
 import { load, save, uid, demo, emptyState } from './store.js';
 
 let state = load();
@@ -29,12 +29,13 @@ const SECTIONS = {
     fields: () => [
       { k: 'name', label: 'Nombre', type: 'text', req: true },
       ownerField(),
-      { k: 'amount', label: 'Monto', type: 'money', req: true },
+      { k: 'amount', label: 'Monto por mes', type: 'money', hint: 'Si se cobra por día trabajado (como la movilidad), dejalo en 0 y completá el valor por día.' },
+      { k: 'perDay', label: 'Valor por día trabajado (opcional)', type: 'money', hint: 'Se multiplica por los días hábiles de cada mes (sin fines de semana ni feriados).' },
       { k: 'months', label: '¿Cuándo cobra?', type: 'select', options: MONTHS_OPT },
       { k: 'from', label: 'Desde (opcional)', type: 'month' },
       { k: 'to', label: 'Hasta (opcional)', type: 'month' },
     ],
-    line: (x) => [x.name, `${x.owner || ''} · ${x.months?.length ? 'jun y dic' : 'mensual'}${x.to ? ' · hasta ' + mname(x.to) : ''}${Object.keys(x.overrides || {}).length ? ' · ' + Object.keys(x.overrides).length + ' mes(es) con otro monto' : ''}`, money(x.amount)],
+    line: (x) => [x.name, `${x.owner || ''} · ${x.months?.length ? 'jun y dic' : x.perDay ? money(x.perDay) + ' por día × ' + daysFor(x, state.settings.start) + ' días este mes' : 'mensual'}${x.to ? ' · hasta ' + mname(x.to) : ''}${Object.keys(x.overrides || {}).length + Object.keys(x.days || {}).length ? ' · ' + (Object.keys(x.overrides || {}).length + Object.keys(x.days || {}).length) + ' mes(es) ajustado(s)' : ''}`, money(amountFor(x, state.settings.start))],
   },
   gastos: {
     list: 'expenses', title: 'Gastos', add: 'Agregar gasto',
@@ -101,9 +102,9 @@ function viewList(key) {
   const rows = items.map((x) => {
     const [a, b, c] = sec.line(x);
     return `<div class="row"><div class="l"><b>${esc(a)}</b><span>${esc(b)}</span></div><div class="r"><b>${esc(c)}</b><br>
-      <button class="link" data-edit="${key}:${x.id}">Editar</button>${key === 'ingresos' || key === 'gastos' ? `<button class="link" data-adj="${key}:${x.id}">Otro monto en un mes</button>` : ''}<button class="link del" data-del="${key}:${x.id}">Borrar</button></div></div>`;
+      <button class="link" data-edit="${key}:${x.id}">Editar</button>${key === 'ingresos' || key === 'gastos' ? `${x.perDay ? `<button class="link" data-days="${key}:${x.id}">Cambiar días de un mes</button>` : ''}<button class="link" data-adj="${key}:${x.id}">Otro monto en un mes</button>` : ''}<button class="link del" data-del="${key}:${x.id}">Borrar</button></div></div>`;
   }).join('');
-  const adjusted = items.filter((x) => Object.keys(x.overrides || {}).length).map((x) => `<div class="row"><div class="l"><b>${esc(x.name)}: meses con otro monto</b><span>${Object.keys(x.overrides).sort().map((k) => `${esc(mname(k))}: ${money(x.overrides[k])}`).join(' · ')}</span></div><div class="r"><button class="link del" data-clradj="${key}:${x.id}">Quitar</button></div></div>`).join('');
+  const adjusted = items.filter((x) => Object.keys(x.overrides || {}).length || Object.keys(x.days || {}).length).map((x) => `<div class="row"><div class="l"><b>${esc(x.name)}: meses ajustados</b><span>${[...Object.keys(x.overrides || {}).map((k) => [k, money(x.overrides[k])]), ...Object.keys(x.days || {}).map((k) => [k, x.days[k] + ' días'])].sort().map(([k, v]) => `${esc(mname(k))}: ${v}`).join(' · ')}</span></div><div class="r"><button class="link del" data-clradj="${key}:${x.id}">Quitar</button></div></div>`).join('');
   let total = '';
   if (key === 'ingresos' || key === 'gastos') {
     const m = simulate(state).months[0];
@@ -229,7 +230,7 @@ function openForm(title, fields, values, onSave) {
     if (fd.type === 'month') return `<input type="month" ${common} value="${esc(v)}">`;
     if (fd.type === 'text') return `<input type="text" ${common} value="${esc(v)}">`;
     if (fd.type === 'rate') return `<input type="number" step="0.01" min="0" inputmode="decimal" ${common} value="${esc(v)}">`;
-    return `<input type="number" min="${fd.type === 'int' ? 1 : 0}" step="${fd.type === 'int' ? 1 : 1000}" inputmode="numeric" ${common} value="${esc(v)}">`;
+    return `<input type="number" min="${fd.type === 'int' ? 1 : 0}" step="${fd.type === 'int' || fd.type === 'int0' ? 1 : 1000}" inputmode="numeric" ${common} value="${esc(v)}">`;
   };
   f.innerHTML = `<h3>${esc(title)}</h3>${fields.map((fd) => `<label>${esc(fd.label)}</label>${input(fd)}${fd.hint ? `<div class="hint">${esc(fd.hint)}</div>` : ''}`).join('')}
     <div class="actions"><button class="p" value="ok">Guardar</button><button class="s" value="cancel" formnovalidate>Cancelar</button></div>`;
@@ -240,7 +241,7 @@ function openForm(title, fields, values, onSave) {
     for (const fd of fields) {
       const raw = data[fd.k];
       if (fd.k === 'months') out.months = raw ? raw.split(',').map(Number) : undefined;
-      else if (['money', 'int', 'rate'].includes(fd.type)) out[fd.k] = raw === '' || raw == null ? 0 : Number(raw);
+      else if (['money', 'int', 'int0', 'rate'].includes(fd.type)) out[fd.k] = raw === '' || raw == null ? 0 : Number(raw);
       else out[fd.k] = raw === '' ? undefined : raw;
     }
     onSave(out);
@@ -269,9 +270,17 @@ document.addEventListener('click', (e) => {
       { k: 'month', label: 'Mes', type: 'month', req: true },
       { k: 'amount', label: `Cuánto cobra/gasta ese mes (normalmente ${money(item.amount)}; poné 0 si no hay)`, type: 'money', req: true },
     ], {}, (v) => { item.overrides = { ...(item.overrides || {}), [v.month]: v.amount }; commit(); });
+  } else if (d.days) {
+    const [k, id] = d.days.split(':');
+    const item = state[SECTIONS[k].list].find((x) => x.id === id);
+    openForm(`${item.name}: días trabajados en un mes`, [
+      { k: 'month', label: 'Mes', type: 'month', req: true },
+      { k: 'n', label: 'Cuántos días cobra ese mes (0 si no cobra)', type: 'int0', req: true },
+    ], {}, (v) => { item.days = { ...(item.days || {}), [v.month]: v.n }; commit(); });
   } else if (d.clradj) {
     const [k, id] = d.clradj.split(':');
-    delete state[SECTIONS[k].list].find((x) => x.id === id).overrides;
+    const it = state[SECTIONS[k].list].find((x) => x.id === id);
+    delete it.overrides; delete it.days;
     commit();
   } else if (d.del) {
     const [k, id] = d.del.split(':');

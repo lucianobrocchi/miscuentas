@@ -1,5 +1,7 @@
 // Motor de proyección. Funciones puras, sin DOM: todo el cálculo vive acá.
 
+import { workdays } from './calendar.js';
+
 export const MAX_MONTHS = 120;
 
 export function addMonths(key, n) {
@@ -26,9 +28,13 @@ export function isActive(item, key) {
 }
 
 // Monto de un ítem en un mes: permite montos distintos mes a mes (movilidad con feriados, vacaciones, enero sin movilidad).
+// Si tiene valor por día (perDay), el monto es perDay x días trabajados del mes (item.days[mes] lo corrige).
+export const daysFor = (item, key) => item.days?.[key] ?? workdays(key);
 export const amountFor = (item, key) => {
   const o = item.overrides?.[key];
-  return o === undefined || o === null ? Number(item.amount) || 0 : Number(o) || 0;
+  if (o !== undefined && o !== null) return Number(o) || 0;
+  if (Number(item.perDay) > 0) return Number(item.perDay) * daysFor(item, key);
+  return Number(item.amount) || 0;
 };
 
 export const installmentEnd = (i) => addMonths(i.first, i.remaining - 1);
