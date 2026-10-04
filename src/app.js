@@ -192,7 +192,7 @@ function viewSimulador() {
   return `<h2>¿Me lo puedo permitir?</h2><p class="note">Probá un gasto nuevo antes de hacerlo y mirá cómo cambia el futuro. No se guarda.</p>
     <form class="card" id="simform">
       <label>¿Qué es?</label><input name="name" placeholder="Ej: viaje, televisor, regalo">
-      <label>Monto</label><input name="amount" type="number" min="0" step="1000" inputmode="numeric" required>
+      <label>Monto</label><input name="amount" type="number" min="0" step="any" inputmode="decimal" required>
       <label>¿Cada cuánto?</label><select name="mode"><option value="once">Una sola vez</option><option value="monthly">Todos los meses</option></select>
       <label>Desde qué mes</label><input name="from" type="month" value="${esc(state.settings.start)}" required>
       <label>Hasta qué mes (solo si es mensual; vacío = para siempre)</label><input name="to" type="month">
@@ -207,9 +207,9 @@ function viewAjustes() {
     <label>Cuántos meses mostrar</label><input name="horizon" type="number" min="3" max="60" value="${esc(s.horizon)}">
     <label>Cómo pagar las deudas con lo que sobra</label>
     <select name="strategy">${opt('avalanche', 'Primero la de más interés (ahorra más plata)')}${opt('snowball', 'Primero la más chica (más motivante)')}${opt('none', 'Solo pagar los mínimos')}</select>
-    <label>Margen para imprevistos por mes (no se usa para deudas)</label><input name="buffer" type="number" min="0" step="1000" value="${esc(s.buffer)}">
-    <label>Plata ahorrada hoy (sirve para cubrir meses en rojo)</label><input name="cash" type="number" min="0" step="1000" value="${esc(s.cash)}">
-    <label>Interés mensual (%) del faltante cuando no hay tarjeta cargada</label><input name="deficitRate" type="number" min="0" step="0.1" value="${esc(s.deficitRate)}">
+    <label>Margen para imprevistos por mes (no se usa para deudas)</label><input name="buffer" type="number" min="0" step="any" inputmode="decimal" value="${esc(s.buffer)}">
+    <label>Plata ahorrada hoy (sirve para cubrir meses en rojo)</label><input name="cash" type="number" min="0" step="any" inputmode="decimal" value="${esc(s.cash)}">
+    <label>Interés mensual (%) del faltante cuando no hay tarjeta cargada</label><input name="deficitRate" type="number" min="0" step="any" inputmode="decimal" value="${esc(s.deficitRate)}">
     <label>Personas (separadas por coma)</label><input name="people" value="${esc(s.people)}">
     <div class="actions"><button class="p" type="submit">Guardar</button></div></form>
     <h2>Datos</h2><div class="actions"><button class="s" data-export>Descargar copia</button><button class="s" data-import>Restaurar copia</button>
@@ -229,8 +229,8 @@ function openForm(title, fields, values, onSave) {
     }
     if (fd.type === 'month') return `<input type="month" ${common} value="${esc(v)}">`;
     if (fd.type === 'text') return `<input type="text" ${common} value="${esc(v)}">`;
-    if (fd.type === 'rate') return `<input type="number" step="0.01" min="0" inputmode="decimal" ${common} value="${esc(v)}">`;
-    return `<input type="number" min="${fd.type === 'int' ? 1 : 0}" step="${fd.type === 'int' || fd.type === 'int0' ? 1 : 1000}" inputmode="numeric" ${common} value="${esc(v)}">`;
+    if (fd.type === 'rate') return `<input type="number" step="any" min="0" inputmode="decimal" ${common} value="${esc(v)}">`;
+    return `<input type="number" min="${fd.type === 'int' ? 1 : 0}" step="${fd.type === 'int' || fd.type === 'int0' ? 1 : 'any'}" inputmode="${fd.type === 'int' || fd.type === 'int0' ? 'numeric' : 'decimal'}" ${common} value="${esc(v)}">`;
   };
   f.innerHTML = `<h3>${esc(title)}</h3>${fields.map((fd) => `<label>${esc(fd.label)}</label>${input(fd)}${fd.hint ? `<div class="hint">${esc(fd.hint)}</div>` : ''}`).join('')}
     <div class="actions"><button class="p" value="ok">Guardar</button><button class="s" value="cancel" formnovalidate>Cancelar</button></div>`;
