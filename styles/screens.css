@@ -1,0 +1,50 @@
+/* ==========================================================================
+   screens.css · reglas a nivel pantalla: ritmo vertical, pantallas oscuras (Bienvenida / Revelación),
+   estados de carga y detalles de escritorio. Sin colores literales.
+   ========================================================================== */
+
+/* cada pantalla se monta dentro de <div class="screen"> (lo crea app.js): apila sus bloques con 12px */
+.screen { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.screen > .section-title { margin-top: var(--s3); }
+.screen > .page-title { margin-top: var(--s1); }
+
+.loading, .noscript { padding: var(--s8) var(--s4); text-align: center; color: var(--ink-2); font-size: var(--t-body); }
+
+/* pantallas sin barra superior ni inferior: Bienvenida y pasos de armado (cada una trae su propio encabezado) */
+body[data-notabs] .topbar { display: none; }
+
+/* pantallas oscuras: el fondo de toda la página es el pino con brillo radial arriba a la derecha */
+body[data-screen="bienvenida"], body[data-screen="revelacion"] {
+  background: radial-gradient(circle at 100% 0, var(--hero-glow) 0, transparent 60%) no-repeat fixed, var(--hero-bg);
+  color: var(--hero-ink);
+}
+body[data-screen="bienvenida"] #shell, body[data-screen="revelacion"] #shell { max-width: 560px; }
+body[data-screen="bienvenida"] .wrap, body[data-screen="revelacion"] .wrap { padding-bottom: 0; }
+.welcome { padding-inline: var(--s2); }
+.welcome .icon { color: var(--hero-ink); }
+@media (min-width: 1024px) {
+  body[data-screen="bienvenida"] #shell, body[data-screen="revelacion"] #shell { margin-inline: auto; }
+}
+
+/* revelación: frases que aparecen en orden */
+.reveal-phrases { display: flex; flex-direction: column; gap: var(--s3); }
+.reveal-phrase { font-size: var(--t-body); line-height: 1.444; font-weight: 600; color: var(--hero-ink); animation: screen-in 360ms var(--ease) both; animation-delay: calc(var(--i, 0) * 280ms + 600ms); }
+
+/* onboarding a ancho de escritorio: columna angosta y centrada */
+@media (min-width: 1024px) {
+  .ob { max-width: 560px; margin-inline: auto; width: 100%; }
+}
+
+/* detalle del mes y paneles pegajosos en escritorio */
+.detail-panel { position: relative; }
+@media (min-width: 1024px) {
+  .detail-panel { padding: var(--s6); }
+}
+
+/* botones de acciones en pantallas: filas de botones lado a lado cuando entran */
+.actions { display: flex; flex-direction: column; gap: var(--s2); }
+@media (min-width: 640px) { .actions.row-wide { flex-direction: row; } .actions.row-wide > .btn { flex: 1 1 0; } }
+
+/* bloques de "siguiente paso" (Hoy, debajo del pliegue) */
+.next-card { display: flex; flex-direction: column; gap: var(--s2); }
+.next-card .eyebrow, .eyebrow { font-size: var(--t-small); line-height: 1.375; font-weight: 700; color: var(--brand); }

@@ -42,10 +42,18 @@ export const installmentActive = (i, key) => key >= i.first && key <= installmen
 
 const EPS = 0.005;
 
+// Pago ELEGIDO para una deuda en un mes (debt.planned['YYYY-MM']). null = no hay pago elegido: rige mínimo + barrido.
+const plannedFor = (d, key) => {
+  const v = d.planned?.[key];
+  return v === undefined || v === null || v === '' ? null : Math.max(0, Number(v) || 0);
+};
+
 /**
  * Simula mes a mes.
  * state: { settings, incomes, expenses, installments, debts }
  * extra: gastos hipotéticos (misma forma que expenses) para el simulador "¿me lo puedo permitir?"
+ * debts[].planned: { 'YYYY-MM': monto } pago ELEGIDO ese mes. Reemplaza el mínimo y el barrido para esa deuda
+ *   ese mes; lo que no se paga queda en caja. Cada mes devuelve además `payments: { [debtId]: monto pagado }`.
  */
 export function simulate(state, { extraExpenses = [], strategy } = {}) {
   const s = state.settings;
@@ -97,11 +105,14 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
     const freedInst = state.installments.filter((x) => installmentEnd(x) === addMonths(key, -1));
 
     let minPaid = 0;
+    const paid = {}; // pagado por deuda este mes (mínimo o elegido + barrido)
     for (const d of allDebts()) {
       if (d.bal > EPS) {
-        const p = Math.min(Number(d.minPayment) || 0, d.bal);
+        const chosen = plannedFor(d, key);
+        const p = Math.min(chosen !== null ? chosen : Number(d.minPayment) || 0, d.bal);
         d.bal -= p;
         minPaid += p;
+        paid[d.id] = (paid[d.id] || 0) + p;
       }
     }
 
@@ -125,11 +136,13 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
       if (strat !== 'none') {
         for (const d of order(allDebts())) {
           if (avail <= EPS) break;
+          if (plannedFor(d, key) !== null) continue; // esa deuda ya tiene el pago elegido este mes
           if (d.bal > EPS) {
             const p = Math.min(avail, d.bal);
             d.bal -= p;
             avail -= p;
             extraPaid += p;
+            paid[d.id] = (paid[d.id] || 0) + p;
           }
         }
       }
@@ -154,6 +167,7 @@ export function simulate(state, { extraExpenses = [], strategy } = {}) {
       installmentCount: insts.length,
       freedInstallments: freedInst,
       debtPayments: minPaid + extraPaid,
+      payments: Object.fromEntries(allDebts().map((d) => [d.id, paid[d.id] || 0])),
       interest,
       free,
       shortfall,

@@ -1,330 +1,415 @@
-import { simulate, compare, totals, amountFor, daysFor, installmentEnd, addMonths, monthDiff } from './engine.js';
-import { load, save, uid, demo, emptyState } from './store.js';
+// app.js · arranque de Mis Cuentas 2.0: carga el estado, arma el contexto (ctx) que reciben las pantallas,
+// el router por hash, la barra inferior / riel de escritorio, la privacidad, el tema y el service worker.
+// Las pantallas viven en src/ui/screens/<nombre>.js y se cargan bajo demanda (ver ROUTES).
+// Contrato de pantalla: export default { id, title, mount(root, ctx, params) } -> opcionalmente devuelve unmount().
 
-let state = load();
-let tab = 'resumen';
-let simResult = null;
+import { load, save } from './store.js';
+import { createRouter } from './ui/router.js';
+import * as sheet from './ui/sheet.js';
+import { toast } from './ui/toast.js';
+import * as ui from './ui/components.js';
+import * as fields from './ui/fields.js';
+import * as charts from './ui/charts.js';
+import { h, icon, fmt, announce, lsGet } from './ui/dom.js';
 
-const $ = (s) => document.querySelector(s);
-const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const money = (n) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('es-AR');
-const mname = (k) => {
-  const [y, m] = k.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }).replace(' de ', ' ');
-};
-const people = () => state.settings.people.split(',').map((p) => p.trim()).filter(Boolean);
-const commit = () => { save(state); render(); };
+const VERSION = '2.0.0';
 
-const TABS = [
-  ['resumen', 'Resumen'], ['ingresos', 'Ingresos'], ['gastos', 'Gastos'],
-  ['cuotas', 'Cuotas'], ['deudas', 'Deudas'], ['medeben', 'Me deben'], ['simulador', '¿Me lo puedo permitir?'], ['ajustes', 'Ajustes'],
+// ---------------------------------------------------------------- tabla de rutas (contrato E)
+// path: ':param' obligatorio · ':param?' opcional. screen = archivo en src/ui/screens/. tab = destino activo de la barra.
+// parent: a dónde vuelve el botón "Volver" de las pantallas hijas (función de la ruta o string).
+const ROUTES = [
+  { name: 'hoy', path: '/hoy', screen: 'hoy', tab: 'hoy', title: 'Hoy' },
+  { name: 'meses', path: '/meses/:key?', screen: 'meses', tab: 'meses', title: 'Meses' },
+  { name: 'puedo', path: '/puedo', screen: 'puedo', tab: 'puedo', title: 'Probá antes de gastar' },
+  { name: 'tarjeta', path: '/deudas/tarjeta', screen: 'tarjeta', tab: 'deudas', title: 'Tarjeta', parent: '#/deudas' },
+  { name: 'medeben', path: '/deudas/medeben/:personId?', screen: 'medeben', tab: 'deudas', title: 'Me deben', parent: (r) => (r.params.personId ? '#/deudas/medeben' : null) },
+  { name: 'deudas', path: '/deudas', screen: 'deudas', tab: 'deudas', title: 'Deudas' },
+  { name: 'mas', path: '/mas/:sec?', screen: 'mas', tab: 'mas', title: 'Más', parent: (r) => (r.params.sec ? '#/mas' : null) },
+  { name: 'bienvenida', path: '/bienvenida', screen: 'bienvenida', notabs: true, title: 'Bienvenida' },
+  { name: 'armar', path: '/armar/:step', screen: 'onboarding', notabs: true, title: 'Armá tu panorama' },
 ];
 
-// ---------- esquemas de formularios ----------
-const MONTHS_OPT = [['', 'Todos los meses'], ['6,12', 'Solo junio y diciembre (aguinaldo)']];
-const ownerField = () => ({ k: 'owner', label: '¿De quién?', type: 'select', options: people().map((p) => [p, p]) });
-const SECTIONS = {
-  ingresos: {
-    list: 'incomes', title: 'Ingresos', add: 'Agregar ingreso',
-    fields: () => [
-      { k: 'name', label: 'Nombre', type: 'text', req: true },
-      ownerField(),
-      { k: 'amount', label: 'Monto por mes', type: 'money', hint: 'Si se cobra por día trabajado (como la movilidad), dejalo en 0 y completá el valor por día.' },
-      { k: 'perDay', label: 'Valor por día trabajado (opcional)', type: 'money', hint: 'Se multiplica por los días hábiles de cada mes (sin fines de semana ni feriados).' },
-      { k: 'months', label: '¿Cuándo cobra?', type: 'select', options: MONTHS_OPT },
-      { k: 'from', label: 'Desde (opcional)', type: 'month' },
-      { k: 'to', label: 'Hasta (opcional)', type: 'month' },
-    ],
-    line: (x) => [x.name, `${x.owner || ''} · ${x.months?.length ? 'jun y dic' : x.perDay ? money(x.perDay) + ' por día × ' + daysFor(x, state.settings.start) + ' días este mes' : 'mensual'}${x.to ? ' · hasta ' + mname(x.to) : ''}${Object.keys(x.overrides || {}).length + Object.keys(x.days || {}).length ? ' · ' + (Object.keys(x.overrides || {}).length + Object.keys(x.days || {}).length) + ' mes(es) ajustado(s)' : ''}`, money(amountFor(x, state.settings.start))],
-  },
-  gastos: {
-    list: 'expenses', title: 'Gastos', add: 'Agregar gasto',
-    fields: () => [
-      { k: 'name', label: 'Nombre', type: 'text', req: true },
-      ownerField(),
-      { k: 'amount', label: 'Monto', type: 'money', req: true },
-      { k: 'from', label: 'Desde (opcional)', type: 'month' },
-      { k: 'to', label: 'Hasta (opcional; si es un gasto de una sola vez, poné el mismo mes en ambos)', type: 'month' },
-    ],
-    line: (x) => [x.name, `${x.owner || ''}${x.from && x.from === x.to ? ' · una vez, ' + mname(x.from) : ' · mensual'}`, money(x.amount)],
-  },
-  cuotas: {
-    list: 'installments', title: 'Compras en cuotas', add: 'Agregar compra en cuotas',
-    fields: () => [
-      { k: 'name', label: '¿Qué compró?', type: 'text', req: true },
-      ownerField(),
-      { k: 'amount', label: 'Valor de la cuota', type: 'money', req: true },
-      { k: 'remaining', label: 'Cuotas que FALTAN pagar (incluida la de este mes)', type: 'int', req: true },
-      { k: 'first', label: 'Mes de la próxima cuota', type: 'month', req: true, def: state.settings.start },
-    ],
-    line: (x) => [x.name, `${x.owner || ''} · ${x.remaining} cuotas · se libera en ${mname(addMonths(installmentEnd(x), 1))}`, money(x.amount) + '/mes'],
-  },
-  medeben: {
-    list: 'receivables', title: 'Lo que le deben a ella', add: 'Agregar deuda de alguien',
-    fields: () => [
-      { k: 'person', label: '¿Quién le debe?', type: 'select', options: people().map((p) => [p, p]) },
-      { k: 'name', label: 'Concepto', type: 'text', req: true },
-      { k: 'balance', label: 'Cuánto debe hoy', type: 'money', req: true },
-      { k: 'monthlyPayment', label: 'Cuánto le devuelve por mes', type: 'money', hint: 'Lo que se comprometió a pagar. Si todavía no hay acuerdo, 0: así se ve que esa plata no está entrando.' },
-      { k: 'rate', label: 'Interés mensual (%) que se le suma', type: 'rate', hint: 'Si no se cobra interés, 0.' },
-    ],
-    line: (x) => [`${x.person}: ${x.name}`, x.monthlyPayment ? `devuelve ${money(x.monthlyPayment)} por mes${x.rate ? ' · interés ' + x.rate + '%' : ''}` : '⚠ sin cuota pactada: no está entrando plata', money(x.balance)],
-  },
-  deudas: {
-    list: 'debts', title: 'Deudas', add: 'Agregar deuda',
-    fields: () => [
-      { k: 'name', label: 'Nombre', type: 'text', req: true },
-      { k: 'kind', label: 'Tipo', type: 'select', options: [['card', 'Tarjeta de crédito'], ['loan', 'Préstamo'], ['other', 'Otra']] },
-      { k: 'creditor', label: '¿A quién se le debe?', type: 'text' },
-      { k: 'balance', label: 'Cuánto se debe hoy', type: 'money', req: true },
-      { k: 'rate', label: 'Interés mensual (%)', type: 'rate', hint: 'Está en el resumen de la tarjeta (TEM). Si es TNA, dividí por 12. Si no cobra interés, 0.' },
-      { k: 'minPayment', label: 'Pago mínimo mensual', type: 'money', hint: 'Lo mínimo que se paga todos los meses sí o sí. Puede ser 0.' },
-    ],
-    line: (x) => [x.name, `${x.creditor || ''} · interés ${x.rate || 0}% mensual · mínimo ${money(x.minPayment || 0)}`, money(x.balance)],
+const NAV = [
+  { id: 'hoy', label: 'Hoy', icon: 'home', href: '#/hoy' },
+  { id: 'meses', label: 'Meses', icon: 'calendario', href: '#/meses' },
+  { id: 'puedo', label: '¿Me alcanza?', icon: 'ayuda-circulo', href: '#/puedo', mid: true },
+  { id: 'deudas', label: 'Deudas', icon: 'tarjeta', href: '#/deudas' },
+  { id: 'mas', label: 'Más', icon: 'mas-puntos', href: '#/mas' },
+];
+
+// ---------------------------------------------------------------- fecha de "hoy" (inyectable: ?hoy=2026-10-04)
+const hoyParam = (() => { try { return new URLSearchParams(location.search).get('hoy'); } catch { return null; } })();
+const today = () => (hoyParam && /^\d{4}-\d{2}-\d{2}$/.test(hoyParam) ? new Date(`${hoyParam}T12:00:00`) : new Date());
+
+// ---------------------------------------------------------------- estado
+let state = load(undefined, { today: today() });
+let derive = {};
+let formatMod = fmt;
+let router = null;
+let renderToken = 0;
+let unmountCurrent = null;
+let currentScreenName = null;
+let headerSet = false;
+let badges = { mas: false, deudas: false };
+
+const clone = (o) => (typeof structuredClone === 'function' ? structuredClone(o) : JSON.parse(JSON.stringify(o)));
+const hasData = (s) => !!(s && ((s.incomes || []).length || (s.expenses || []).length || (s.debts || []).length || (s.receivables || []).length));
+const defaultHash = () => (state.settings?.onboarded || hasData(state) ? '#/hoy' : '#/bienvenida');
+
+// ---------------------------------------------------------------- preferencias visibles (tema, letra, privacidad)
+const metaOrig = new Map();
+function applyPrefs() {
+  const s = state.settings || {};
+  const root = document.documentElement;
+  if (s.theme === 'light' || s.theme === 'dark') root.setAttribute('data-theme', s.theme); else root.removeAttribute('data-theme');
+  if (s.fontSize === 'grande' || s.fontSize === 'mas-grande') root.setAttribute('data-fontsize', s.fontSize); else root.removeAttribute('data-fontsize');
+  if (s.privacy) root.setAttribute('data-privacy', 'on'); else root.removeAttribute('data-privacy');
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    if (!metaOrig.has(m)) metaOrig.set(m, m.getAttribute('content'));
+    const forced = s.theme === 'dark' ? '#0D1512' : s.theme === 'light' ? '#F6F3EC' : null;
+    m.setAttribute('content', forced || metaOrig.get(m));
+  });
+  // espejo para el script de index.html (evita el destello al abrir)
+  paintEye();
+}
+
+function setPrivacy(on) {
+  state = { ...state, settings: { ...state.settings, privacy: !!on } };
+  save(state);
+  applyPrefs();
+  render({ keepScroll: true });
+  announce(on ? 'Montos ocultos' : 'Montos visibles');
+}
+
+// ---------------------------------------------------------------- update con Deshacer
+/**
+ * update(fn, { undoLabel })  aplica fn(borrador) sobre una copia del estado, guarda, re-renderiza.
+ * fn puede mutar el borrador o devolver un estado nuevo completo. Con undoLabel muestra un toast con "Deshacer".
+ * Devuelve el estado nuevo.
+ */
+function update(fn, { undoLabel, rerender = true, onUndo } = {}) {
+  const before = state;
+  const draft = clone(state);
+  const out = fn(draft);
+  state = out && typeof out === 'object' ? out : draft;
+  save(state);
+  applyPrefs();
+  if (rerender) render({ keepScroll: true });
+  if (undoLabel) {
+    toast(undoLabel, {
+      actionLabel: 'Deshacer',
+      onAction: () => {
+        state = before;
+        save(state);
+        applyPrefs();
+        render({ keepScroll: true });
+        onUndo?.();
+        toast('Listo, volvió a como estaba.');
+      },
+    });
+  }
+  return state;
+}
+
+// ---------------------------------------------------------------- navegación
+async function nav(hash, opts) {
+  if (sheet.isOpen()) await sheet.closeAll();
+  router.go(hash, opts);
+}
+const back = (fallback) => router.back(fallback);
+
+// ---------------------------------------------------------------- editores (lazy)
+let editorsMod = null;
+let editorsInit = false;
+const editors = {
+  async open(kind, id, opts) {
+    try {
+      editorsMod ||= await import('./ui/editors.js');
+    } catch (e) {
+      console.error('editors.js no se pudo cargar', e);
+      toast('Esta opción se está terminando de construir.');
+      return undefined;
+    }
+    const api = editorsMod.default && typeof editorsMod.default === 'object' ? editorsMod.default : editorsMod;
+    if (!editorsInit) { editorsInit = true; (editorsMod.init || api.init)?.(ctx); }
+    const open = api.open || editorsMod.open;
+    if (typeof open !== 'function') throw new Error('src/ui/editors.js debe exportar open(kind, id, opts)');
+    return open.length >= 4 ? open(ctx, kind, id, opts) : open(kind, id, opts);
   },
 };
 
-// ---------- render ----------
-function render() {
-  const t = totals(state);
-  $('#sub').textContent = state.debts.length ? `Deuda hoy: ${money(t.debt)} · Interés que suma por mes: ${money(t.monthlyInterest)}` : 'Cargá tus datos para ver el futuro';
-  $('#tabs').innerHTML = TABS.map(([k, l]) => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('');
-  const v = $('#view');
-  if (tab === 'resumen') v.innerHTML = viewResumen();
-  else if (tab === 'simulador') v.innerHTML = viewSimulador();
-  else if (tab === 'ajustes') v.innerHTML = viewAjustes();
-  else v.innerHTML = viewList(tab);
-}
+// ---------------------------------------------------------------- contexto para las pantallas
+const ctx = {
+  get state() { return state; },
+  update,
+  get derive() { return derive; },
+  get format() { return formatMod; },
+  nav,
+  back,
+  sheet,
+  toast,
+  ui: { ...ui, fields, fmt, h, icon },
+  charts,
+  editors,
+  today,
+  /** Encabezado de la pantalla: header({ eyebrow:'Domingo 4 de octubre', title:'Hola, Ana', back:true | '#/deudas' }) · header(false) lo oculta. */
+  header(cfg) { headerSet = true; renderTopbar(cfg); },
+  /** Puntos ámbar de la barra: setBadges({ mas:true, deudas:false }) */
+  setBadges(b) { badges = { ...badges, ...b }; paintBadges(); },
+  /** Cambia el modo visual del <body> (p. ej. 'revelacion' para el fondo oscuro). screenMode(null) vuelve al de la ruta. */
+  screenMode(name) { document.body.dataset.screen = name || router.current()?.name || ''; },
+  /** Re-dibuja la pantalla actual (sin tocar el estado). */
+  rerender: () => render({ keepScroll: true }),
+  isPrivate: () => document.documentElement.dataset.privacy === 'on',
+  setPrivacy,
+  route: () => router.current(),
+  version: VERSION,
+};
 
-function viewList(key) {
-  const sec = SECTIONS[key];
-  const items = state[sec.list];
-  const rows = items.map((x) => {
-    const [a, b, c] = sec.line(x);
-    return `<div class="row"><div class="l"><b>${esc(a)}</b><span>${esc(b)}</span></div><div class="r"><b>${esc(c)}</b><br>
-      <button class="link" data-edit="${key}:${x.id}">Editar</button>${key === 'ingresos' || key === 'gastos' ? `${x.perDay ? `<button class="link" data-days="${key}:${x.id}">Cambiar días de un mes</button>` : ''}<button class="link" data-adj="${key}:${x.id}">Otro monto en un mes</button>` : ''}<button class="link del" data-del="${key}:${x.id}">Borrar</button></div></div>`;
-  }).join('');
-  const adjusted = items.filter((x) => Object.keys(x.overrides || {}).length || Object.keys(x.days || {}).length).map((x) => `<div class="row"><div class="l"><b>${esc(x.name)}: meses ajustados</b><span>${[...Object.keys(x.overrides || {}).map((k) => [k, money(x.overrides[k])]), ...Object.keys(x.days || {}).map((k) => [k, x.days[k] + ' días'])].sort().map(([k, v]) => `${esc(mname(k))}: ${v}`).join(' · ')}</span></div><div class="r"><button class="link del" data-clradj="${key}:${x.id}">Quitar</button></div></div>`).join('');
-  let total = '';
-  if (key === 'ingresos' || key === 'gastos') {
-    const m = simulate(state).months[0];
-    total = `<p class="note">Este mes (${esc(mname(m.key))}): ${money(key === 'ingresos' ? m.income : m.expenses)}</p>`;
+// ---------------------------------------------------------------- barra superior
+function renderTopbar(cfg) {
+  const bar = document.getElementById('topbar');
+  if (!bar) return;
+  if (cfg === false) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const route = router.current();
+  const c = typeof cfg === 'object' && cfg ? cfg : {};
+  let backHash = c.back;
+  if (backHash === true || backHash === undefined) {
+    const def = route && ROUTES.find((r) => r.name === route.name)?.parent;
+    const p = typeof def === 'function' ? def(route) : def;
+    backHash = backHash === true ? (p || '#/hoy') : p || null;
   }
-  if (key === 'medeben') total = `<p class="note">Total que le deben: ${money(totals(state).owed)}. Este mes entran ${money(simulate(state).months[0].collections)}.</p>`;
-  return `<h2>${sec.title}</h2>${total}<div class="card">${rows || '<p class="note">Todavía no cargaste nada.</p>'}</div>${adjusted ? `<div class="card">${adjusted}</div>` : ''}
-    <div class="actions"><button class="p" data-add="${key}">+ ${sec.add}</button></div>`;
+  const eye = h('button', {
+    type: 'button', class: 'icon-btn eye-top', id: 'eye-btn', 'aria-label': ctx.isPrivate() ? 'Mostrar montos' : 'Ocultar montos',
+    'aria-pressed': String(ctx.isPrivate()), onclick: () => setPrivacy(!ctx.isPrivate()),
+  }, icon(ctx.isPrivate() ? 'ojo-tachado' : 'ojo'));
+  bar.replaceChildren(
+    h('div', { class: 'topbar-main' },
+      backHash ? h('button', { type: 'button', class: 'icon-btn back', 'aria-label': 'Volver', onclick: () => back(backHash) }, icon('volver')) : null,
+      h('div', { class: 'topbar-text' },
+        c.eyebrow ? h('span', { class: 'topbar-eyebrow' }, c.eyebrow) : null,
+        c.title ? h('span', { class: 'topbar-title' }, c.title) : null)),
+    h('div', { class: 'topbar-actions' }, c.actions || null, eye));
 }
-
-function viewResumen() {
-  if (!state.incomes.length && !state.debts.length && !(state.receivables || []).length) {
-    return `<div class="card"><p class="big"><b>Bienvenida 👋</b></p>
-      <p>Para ver cómo te va a ir en los próximos meses, cargá: <b>1)</b> tus ingresos, <b>2)</b> tus gastos, <b>3)</b> las compras en cuotas y <b>4)</b> las deudas (tarjeta, préstamos).</p>
-      <div class="actions"><button class="p" data-tab="ingresos">Empezar por los ingresos</button><button class="s" data-demo>Ver un ejemplo</button></div></div>`;
+function paintEye() {
+  const on = document.documentElement.dataset.privacy === 'on';
+  const b = document.getElementById('eye-btn');
+  if (b) {
+    b.setAttribute('aria-label', on ? 'Mostrar montos' : 'Ocultar montos');
+    b.setAttribute('aria-pressed', String(on));
+    b.replaceChildren(icon(on ? 'ojo-tachado' : 'ojo'));
   }
-  const r = simulate(state);
-  const none = simulate(state, { strategy: 'none' });
-  const h = Math.min(Number(state.settings.horizon) || 12, r.months.length);
-  const ms = r.months.slice(0, h);
-  const t = totals(state);
-  const bad = ms.filter((m) => m.status === 'bad');
-  const free = r.debtFreeMonth;
-  const kpis = `<div class="grid">
-    <div class="card kpi"><small>Deuda hoy</small><b>${money(t.debt)}</b></div>
-    <div class="card kpi ${free ? 'ok' : 'bad'}"><small>Libre de deudas</small><b>${free ? esc(mname(free)) : 'No alcanza'}</b>
-      <small>${free ? 'en ' + (monthDiff(state.settings.start, free) + 1) + ' meses' : 'con este ritmo la deuda no termina'}</small></div>
-    ${t.owed ? `<div class="card kpi"><small>Le deben a ella</small><b>${money(t.owed)}</b><small>${state.receivables.some((x) => !x.monthlyPayment) ? '⚠ hay deudas sin cuota pactada' : 'se va cobrando mes a mes'}</small></div>` : ''}
-    <div class="card kpi"><small>Interés total que vas a pagar</small><b>${money(r.totalInterest)}</b>
-      ${none.months[h - 1].debtTotal > ms[h - 1].debtTotal ? `<small>Sin plan, en ${h} meses la deuda estaría en ${money(none.months[h - 1].debtTotal)} (con plan: ${money(ms[h - 1].debtTotal)})</small>` : ''}</div>
-  </div>`;
-  const alert = bad.length
-    ? `<div class="verdict bad"><b>⚠ ${bad.length === 1 ? 'Hay un mes' : 'Hay ' + bad.length + ' meses'} en rojo:</b> ${bad.map((m) => esc(mname(m.key))).join(', ')}. En esos meses los gastos superan lo que entra: hay que recortar o juntar plata antes.</div>`
-    : `<div class="verdict ok">✓ En los próximos ${h} meses los ingresos alcanzan para todos los compromisos.</div>`;
-  const cards = ms.map((m) => {
-    const ev = [
-      ...m.freedInstallments.map((i) => `🎉 Se terminó la cuota de ${esc(i.name)}: liberás ${money(i.amount)}/mes`),
-      ...r.debts.filter((d) => d.paidOn === m.key).map((d) => `🎉 Se termina de pagar: ${esc(d.name)}`),
-      ...r.receivables.filter((x) => x.paidOn === m.key).map((x) => `💚 ${esc(x.person)} termina de devolverle: ${esc(x.name)}`),
-    ];
-    return `<div class="m ${m.status}"><span class="name">${esc(mname(m.key))}</span>
-      <span class="free">${m.free >= 0 ? 'Sobran ' : 'Faltan '}${money(Math.abs(m.free))}</span>
-      <span class="det">Entra ${money(m.income)}${m.collections ? ' + ' + money(m.collections) + ' que le devuelven' : ''} · Gastos ${money(m.expenses)} · Cuotas ${money(m.installments)} · A deudas ${money(m.debtPayments)} · Deuda al cierre ${money(m.debtTotal)}</span>
-      ${ev.map((e) => `<span class="ev">${e}</span>`).join('')}</div>`;
-  }).join('');
-  return `${kpis}${alert}<h2>Mes por mes</h2><div class="months">${cards}</div>
-    <h2>Cómo baja la deuda</h2><div class="card">${chart(ms)}</div>
-    <p class="note">Los "sobra" van primero a pagar deudas (${state.settings.strategy === 'snowball' ? 'la más chica primero' : state.settings.strategy === 'none' ? 'desactivado' : 'la de más interés primero'}), dejando un margen de ${money(state.settings.buffer)} por mes para imprevistos.</p>`;
-}
-
-function chart(ms) {
-  const W = 600, H = 180, P = 28;
-  const max = Math.max(...ms.map((m) => m.debtTotal), 1);
-  const x = (i) => P + (i * (W - P - 8)) / Math.max(ms.length - 1, 1);
-  const y = (v) => H - P - (v / max) * (H - P - 12);
-  const pts = ms.map((m, i) => `${x(i)},${y(m.debtTotal)}`).join(' ');
-  const labels = ms.map((m, i) => (i % Math.ceil(ms.length / 6) === 0 ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(mname(m.key).slice(0, 3))}</text>` : '')).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Deuda total mes a mes">
-    <line x1="${P}" y1="${H - P}" x2="${W - 8}" y2="${H - P}" stroke="currentColor" opacity=".2"/>
-    <polyline points="${pts}" fill="none" stroke="var(--brand)" stroke-width="3" stroke-linejoin="round"/>
-    <text x="${P}" y="12">${money(max)}</text>${labels}</svg>`;
-}
-
-function viewSimulador() {
-  const r = simResult;
-  let out = '';
+  const r = document.getElementById('rail-eye');
   if (r) {
-    const { c, desc } = r;
-    let cls, msg;
-    if (c.newNegativeMonths.length) {
-      cls = 'bad';
-      msg = `<b>No conviene.</b> Te deja en rojo en: ${c.newNegativeMonths.slice(0, 6).map((k) => esc(mname(k))).join(', ')}${c.newNegativeMonths.length > 6 ? '…' : ''}.`;
-    } else if (c.delayMonths === null || (c.delayMonths > 0 && !c.withExtra.debtFreeMonth)) {
-      cls = 'bad';
-      msg = `<b>No conviene.</b> Con este gasto la deuda deja de terminarse.`;
-    } else if (c.delayMonths > 0) {
-      cls = 'tight';
-      msg = `<b>Se puede, pero tiene costo:</b> atrasa ${c.delayMonths} ${c.delayMonths === 1 ? 'mes' : 'meses'} salir de la deuda (de ${esc(mname(c.base.debtFreeMonth))} a ${esc(mname(c.withExtra.debtFreeMonth))}) y suma ${money(c.extraInterest)} de interés.`;
-    } else {
-      cls = 'ok';
-      msg = `<b>Entra sin problemas.</b> No cambia la fecha en que salís de la deuda${c.extraInterest > 1 ? ` (suma ${money(c.extraInterest)} de interés)` : ''}.`;
-    }
-    out = `<div class="verdict ${cls}">${esc(desc)}<br>${msg}</div>`;
+    r.setAttribute('aria-pressed', String(on));
+    r.replaceChildren(icon(on ? 'ojo-tachado' : 'ojo'), h('span', null, on ? 'Mostrar montos' : 'Ocultar montos'));
   }
-  return `<h2>¿Me lo puedo permitir?</h2><p class="note">Probá un gasto nuevo antes de hacerlo y mirá cómo cambia el futuro. No se guarda.</p>
-    <form class="card" id="simform">
-      <label>¿Qué es?</label><input name="name" placeholder="Ej: viaje, televisor, regalo">
-      <label>Monto</label><input name="amount" type="number" min="0" step="any" inputmode="decimal" required>
-      <label>¿Cada cuánto?</label><select name="mode"><option value="once">Una sola vez</option><option value="monthly">Todos los meses</option></select>
-      <label>Desde qué mes</label><input name="from" type="month" value="${esc(state.settings.start)}" required>
-      <label>Hasta qué mes (solo si es mensual; vacío = para siempre)</label><input name="to" type="month">
-      <div class="actions"><button class="p" type="submit">Calcular</button></div></form>${out}`;
 }
 
-function viewAjustes() {
-  const s = state.settings;
-  const opt = (v, l) => `<option value="${v}" ${s.strategy === v ? 'selected' : ''}>${l}</option>`;
-  return `<h2>Ajustes</h2><form class="card" id="setform">
-    <label>Mes en que empieza el cálculo</label><input name="start" type="month" value="${esc(s.start)}" required>
-    <label>Cuántos meses mostrar</label><input name="horizon" type="number" min="3" max="60" value="${esc(s.horizon)}">
-    <label>Cómo pagar las deudas con lo que sobra</label>
-    <select name="strategy">${opt('avalanche', 'Primero la de más interés (ahorra más plata)')}${opt('snowball', 'Primero la más chica (más motivante)')}${opt('none', 'Solo pagar los mínimos')}</select>
-    <label>Margen para imprevistos por mes (no se usa para deudas)</label><input name="buffer" type="number" min="0" step="any" inputmode="decimal" value="${esc(s.buffer)}">
-    <label>Plata ahorrada hoy (sirve para cubrir meses en rojo)</label><input name="cash" type="number" min="0" step="any" inputmode="decimal" value="${esc(s.cash)}">
-    <label>Interés mensual (%) del faltante cuando no hay tarjeta cargada</label><input name="deficitRate" type="number" min="0" step="any" inputmode="decimal" value="${esc(s.deficitRate)}">
-    <label>Personas (separadas por coma)</label><input name="people" value="${esc(s.people)}">
-    <div class="actions"><button class="p" type="submit">Guardar</button></div></form>
-    <h2>Datos</h2><div class="actions"><button class="s" data-export>Descargar copia</button><button class="s" data-import>Restaurar copia</button>
-    <button class="s" data-demo>Cargar ejemplo</button><button class="s" data-reset>Borrar todo</button></div>
-    <p class="note">Todo se guarda solo en este dispositivo. Descargá una copia de vez en cuando.</p>`;
+// ---------------------------------------------------------------- barra inferior y riel
+function buildNav() {
+  const tabs = document.getElementById('tabbar-in');
+  tabs.replaceChildren(...NAV.map((n) => h('a', { class: ['tab', n.mid && 'mid'], href: n.href, dataset: { tab: n.id }, onclick: (e) => tabClick(e, n) },
+    h('span', { class: 'cap' }, icon(n.icon)), h('span', { class: 'lbl' }, n.label), h('span', { class: 'dot', hidden: true, 'aria-hidden': 'true' }))));
+  const rail = document.getElementById('rail');
+  rail.replaceChildren(
+    h('div', { class: 'rail-brand' }, h('svg', { class: 'brandmark', viewBox: '0 0 64 64', 'aria-hidden': 'true', focusable: 'false' }, h('use', { href: '#i-marca' })), h('b', null, 'Mis Cuentas')),
+    h('nav', { 'aria-label': 'Menú principal' }, NAV.map((n, i) => h('a', { class: ['rail-item', n.mid && 'mid'], href: n.href, dataset: { tab: n.id }, title: `Atajo: tecla ${i + 1}`, onclick: (e) => tabClick(e, n) },
+      icon(n.icon), h('span', null, n.label), h('span', { class: 'dot', hidden: true, 'aria-hidden': 'true' })))),
+    h('div', { class: 'rail-foot' },
+      h('button', { type: 'button', class: 'rail-eye', id: 'rail-eye', 'aria-pressed': 'false', onclick: () => setPrivacy(!ctx.isPrivate()) }, icon('ojo'), h('span', null, 'Ocultar montos')),
+      h('p', { class: 'rail-note' }, 'Tus datos quedan en este equipo.')));
+}
+function tabClick(e, n) {
+  const r = router.current();
+  if (r && r.tab === n.id && r.hash === n.href) { e.preventDefault(); window.scrollTo({ top: 0 }); return; }
+  if (sheet.isOpen()) { e.preventDefault(); nav(n.href); }
+}
+function paintNav(route) {
+  const active = route?.tab || null;
+  document.querySelectorAll('[data-tab]').forEach((a) => {
+    if (a.dataset.tab === active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  document.body.toggleAttribute('data-notabs', !!route?.notabs);
+}
+function paintBadges() {
+  document.querySelectorAll('[data-tab]').forEach((a) => {
+    const dot = a.querySelector('.dot');
+    if (!dot) return;
+    const on = !!badges[a.dataset.tab];
+    dot.hidden = !on;
+    const base = NAV.find((n) => n.id === a.dataset.tab)?.label || '';
+    if (on) a.setAttribute('aria-label', `${base}, hay algo para completar`); else a.removeAttribute('aria-label');
+  });
 }
 
-// ---------- formulario modal ----------
-function openForm(title, fields, values, onSave) {
-  const f = $('#form');
-  const input = (fd) => {
-    const v = values[fd.k] ?? fd.def ?? '';
-    const common = `name="${fd.k}" ${fd.req ? 'required' : ''}`;
-    if (fd.type === 'select') {
-      const cur = fd.k === 'months' ? (values.months || []).join(',') : v;
-      return `<select ${common}>${fd.options.map(([o, l]) => `<option value="${esc(o)}" ${String(cur) === o ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-    }
-    if (fd.type === 'month') return `<input type="month" ${common} value="${esc(v)}">`;
-    if (fd.type === 'text') return `<input type="text" ${common} value="${esc(v)}">`;
-    if (fd.type === 'rate') return `<input type="number" step="any" min="0" inputmode="decimal" ${common} value="${esc(v)}">`;
-    return `<input type="number" min="${fd.type === 'int' ? 1 : 0}" step="${fd.type === 'int' || fd.type === 'int0' ? 1 : 'any'}" inputmode="${fd.type === 'int' || fd.type === 'int0' ? 'numeric' : 'decimal'}" ${common} value="${esc(v)}">`;
-  };
-  f.innerHTML = `<h3>${esc(title)}</h3>${fields.map((fd) => `<label>${esc(fd.label)}</label>${input(fd)}${fd.hint ? `<div class="hint">${esc(fd.hint)}</div>` : ''}`).join('')}
-    <div class="actions"><button class="p" value="ok">Guardar</button><button class="s" value="cancel" formnovalidate>Cancelar</button></div>`;
-  f.onsubmit = (e) => {
-    if (e.submitter?.value !== 'ok') return;
-    const data = Object.fromEntries(new FormData(f));
-    const out = {};
-    for (const fd of fields) {
-      const raw = data[fd.k];
-      if (fd.k === 'months') out.months = raw ? raw.split(',').map(Number) : undefined;
-      else if (['money', 'int', 'int0', 'rate'].includes(fd.type)) out[fd.k] = raw === '' || raw == null ? 0 : Number(raw);
-      else out[fd.k] = raw === '' ? undefined : raw;
-    }
-    onSave(out);
-  };
-  $('#dlg').showModal();
+// ---------------------------------------------------------------- avisos fijos (ejemplo, sin internet)
+function paintBanners() {
+  const box = document.getElementById('banners');
+  if (!box) return;
+  box.replaceChildren();
+  if (state.settings?.demo) {
+    box.appendChild(ui.ribbon({ text: 'Esto es un ejemplo, no son tus números', actionLabel: 'Cargar lo mío', onClick: loadMine }));
+  }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    box.appendChild(ui.pill('Sin internet no pasa nada: todo está guardado en tu celular.', 'pill-offline-box'));
+  }
+}
+async function loadMine() {
+  const ok = await sheet.confirm({
+    title: '¿Cargar lo tuyo?',
+    message: 'Se borra el ejemplo y empezás con tus propios datos. El ejemplo no se puede recuperar, pero siempre lo podés volver a ver desde la bienvenida si todavía no cargaste nada.',
+    confirmLabel: 'Sí, cargar lo mío',
+    cancelLabel: 'Seguir mirando el ejemplo',
+  });
+  if (!ok) return;
+  const store = await import('./store.js');
+  update(() => store.emptyState(today()), { rerender: false });
+  paintBanners();
+  nav('#/armar/1');
 }
 
-// ---------- eventos ----------
-document.addEventListener('click', (e) => {
-  const t = e.target.closest('button');
-  if (!t) return;
-  const d = t.dataset;
-  if (d.tab) { tab = d.tab; render(); window.scrollTo(0, 0); }
-  else if (d.add) {
-    const sec = SECTIONS[d.add];
-    openForm(sec.add, sec.fields(), {}, (v) => { state[sec.list].push({ id: uid(), ...v }); commit(); });
-  } else if (d.edit) {
-    const [k, id] = d.edit.split(':');
-    const sec = SECTIONS[k];
-    const item = state[sec.list].find((x) => x.id === id);
-    openForm('Editar', sec.fields(), item, (v) => { Object.assign(item, v); commit(); });
-  } else if (d.adj) {
-    const [k, id] = d.adj.split(':');
-    const item = state[SECTIONS[k].list].find((x) => x.id === id);
-    openForm(`${item.name}: otro monto en un mes`, [
-      { k: 'month', label: 'Mes', type: 'month', req: true },
-      { k: 'amount', label: `Cuánto cobra/gasta ese mes (normalmente ${money(item.amount)}; poné 0 si no hay)`, type: 'money', req: true },
-    ], {}, (v) => { item.overrides = { ...(item.overrides || {}), [v.month]: v.amount }; commit(); });
-  } else if (d.days) {
-    const [k, id] = d.days.split(':');
-    const item = state[SECTIONS[k].list].find((x) => x.id === id);
-    openForm(`${item.name}: días trabajados en un mes`, [
-      { k: 'month', label: 'Mes', type: 'month', req: true },
-      { k: 'n', label: 'Cuántos días cobra ese mes (0 si no cobra)', type: 'int0', req: true },
-    ], {}, (v) => { item.days = { ...(item.days || {}), [v.month]: v.n }; commit(); });
-  } else if (d.clradj) {
-    const [k, id] = d.clradj.split(':');
-    const it = state[SECTIONS[k].list].find((x) => x.id === id);
-    delete it.overrides; delete it.days;
-    commit();
-  } else if (d.del) {
-    const [k, id] = d.del.split(':');
-    const sec = SECTIONS[k];
-    const item = state[sec.list].find((x) => x.id === id);
-    if (confirm(`¿Borrar "${item.name}"?`)) { state[sec.list] = state[sec.list].filter((x) => x.id !== id); commit(); }
-  } else if ('demo' in d) {
-    if (!state.incomes.length || confirm('Esto reemplaza lo que cargaste por datos de ejemplo. ¿Seguir?')) { state = demo(); commit(); }
-  } else if ('reset' in d) {
-    if (confirm('¿Borrar TODOS los datos? No se puede deshacer.')) { state = emptyState(); commit(); }
-  } else if ('export' in d) {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }));
-    a.download = `miscuentas-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-  } else if ('import' in d) {
-    const i = document.createElement('input');
-    i.type = 'file'; i.accept = 'application/json';
-    i.onchange = async () => {
-      try {
-        const s = JSON.parse(await i.files[0].text());
-        if (!Array.isArray(s.incomes) || !s.settings) throw new Error();
-        state = { ...emptyState(), ...s }; commit();
-      } catch { alert('Ese archivo no es una copia válida.'); }
-    };
-    i.click();
+// ---------------------------------------------------------------- render de pantallas
+const moduleCache = new Map();
+async function loadScreen(name) {
+  if (moduleCache.has(name)) return moduleCache.get(name);
+  try {
+    const mod = await import(`./ui/screens/${name}.js`);
+    const def = mod.default || mod;
+    moduleCache.set(name, def);
+    return def;
+  } catch (e) {
+    console.warn(`[Mis Cuentas] pantalla "${name}" no disponible todavía`, e);
+    moduleCache.set(name, null);
+    return null;
   }
-});
+}
 
-document.addEventListener('submit', (e) => {
-  if (e.target.id === 'setform') {
-    e.preventDefault();
-    const d = Object.fromEntries(new FormData(e.target));
-    Object.assign(state.settings, { ...d, horizon: Number(d.horizon) || 12, buffer: Number(d.buffer) || 0, cash: Number(d.cash) || 0, deficitRate: Number(d.deficitRate) || 0 });
-    commit();
-  } else if (e.target.id === 'simform') {
-    e.preventDefault();
-    const d = Object.fromEntries(new FormData(e.target));
-    const once = d.mode === 'once';
-    const extra = [{ id: 'sim', name: d.name || 'Gasto nuevo', amount: Number(d.amount), from: d.from, to: once ? d.from : d.to || undefined }];
-    simResult = { c: compare(state, extra), desc: `${d.name || 'Gasto nuevo'}: ${money(Number(d.amount))} ${once ? 'una vez en ' + mname(d.from) : 'por mes desde ' + mname(d.from)}` };
-    render();
+function placeholder(root, title, text, retry) {
+  root.replaceChildren(ui.empty({
+    title, text, art: 'obra',
+    action: retry ? { label: 'Probar de nuevo', onClick: retry } : { label: 'Volver a Hoy', href: '#/hoy' },
+  }));
+}
+
+async function render({ keepScroll = false } = {}) {
+  const route = router.current();
+  if (!route) return;
+  const token = ++renderToken;
+  const view = document.getElementById('view');
+  const sameScreen = currentScreenName === route.screen;
+  const scrollY = keepScroll || sameScreen ? window.scrollY : 0;
+
+  const def = await loadScreen(route.screen);
+  if (token !== renderToken) return;
+
+  try { unmountCurrent?.(); } catch (e) { console.error('unmount', e); }
+  unmountCurrent = null;
+
+  const root = h('div', { class: 'screen', dataset: { screen: route.screen } });
+  view.replaceChildren(root);
+  currentScreenName = route.screen;
+  document.body.dataset.screen = route.name;
+  headerSet = false;
+  const meta = ROUTES.find((r) => r.name === route.name) || {};
+  const title = (def && typeof def.title === 'function' ? def.title(ctx, route.params) : def?.title) || meta.title || 'Mis Cuentas';
+  document.title = route.name === 'hoy' ? 'Mis Cuentas' : `${title} · Mis Cuentas`;
+  renderTopbar({ title: route.name === 'hoy' ? '' : title, back: undefined });
+  paintNav(route);
+  paintBanners();
+
+  if (!def || typeof def.mount !== 'function') {
+    placeholder(root, 'Esta pantalla se está construyendo', 'Mientras tanto podés seguir usando el resto de la app.');
+  } else {
+    try {
+      const res = await def.mount(root, ctx, route.params, route);
+      if (token !== renderToken) { try { typeof res === 'function' && res(); } catch { /* nada */ } return; }
+      if (typeof res === 'function') unmountCurrent = res;
+    } catch (e) {
+      console.error(`[Mis Cuentas] error en la pantalla "${route.screen}"`, e);
+      placeholder(root, 'Algo no salió como esperábamos', 'Tus datos están a salvo. Probá de nuevo; si sigue igual, volvé a Hoy.', () => render());
+    }
   }
-});
+  paintBadges();
+  window.scrollTo({ top: scrollY });
+}
 
-render();
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+function onRoute(route, { kind }) {
+  paintNav(route);
+  render({ keepScroll: false }).then(() => {
+    if (kind === 'push' || kind === 'pop') {
+      document.getElementById('view')?.focus({ preventScroll: true });
+      announce(document.title);
+    }
+  });
+}
+
+// ---------------------------------------------------------------- arranque
+async function loadLogic() {
+  const [d, f] = await Promise.all([
+    import('./derive.js').catch((e) => { console.warn('[Mis Cuentas] derive.js todavía no está disponible', e); return null; }),
+    import('./format.js').catch(() => null),
+  ]);
+  derive = d || {};
+  formatMod = f || fmt;
+}
+
+function wireGlobalEvents() {
+  addEventListener('online', paintBanners);
+  addEventListener('offline', paintBanners);
+  // atajos de escritorio: 1-5 para ir a cada destino
+  addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (sheet.isOpen()) return;
+    const i = '12345'.indexOf(e.key);
+    if (i >= 0 && matchMedia('(min-width: 1024px)').matches && !router.current()?.notabs) nav(NAV[i].href);
+  });
+}
+
+function registerSW() {
+  if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol) || new URLSearchParams(location.search).has('nosw')) return;
+  let updating = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (updating) location.reload(); });
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    const notify = () => toast('Hay una versión nueva', {
+      actionLabel: 'Actualizar', duration: 0,
+      onAction: () => { updating = true; reg.waiting?.postMessage({ type: 'SKIP_WAITING' }); setTimeout(() => location.reload(), 1500); },
+    });
+    if (reg.waiting && navigator.serviceWorker.controller) notify();
+    reg.addEventListener('updatefound', () => {
+      const w = reg.installing;
+      w?.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) notify(); });
+    });
+  }).catch(() => { /* sin service worker la app anda igual */ });
+}
+
+function warmCache() {
+  const idle = window.requestIdleCallback || ((f) => setTimeout(f, 2500));
+  idle(() => {
+    const files = [...new Set(ROUTES.map((r) => `./ui/screens/${r.screen}.js`)), './ui/editors.js', './derive.js', './adapter.js', './demo.js'];
+    files.forEach((f) => fetch(new URL(f, import.meta.url)).catch(() => {}));
+  });
+}
+
+function boot() {
+  router = createRouter({
+    routes: ROUTES, fallback: defaultHash(), onChange: onRoute,
+  });
+  applyPrefs();
+  buildNav();
+  paintEye();
+  wireGlobalEvents();
+  if (!location.hash || location.hash === '#' || location.hash === '#/') history.replaceState(null, '', defaultHash());
+  loadLogic().then(() => {
+    router.start();
+    registerSW();
+    warmCache();
+    try { if (matchMedia('(display-mode: standalone)').matches) navigator.storage?.persist?.(); } catch { /* nada */ }
+  });
+}
+
+window.miscuentas = { ctx, ROUTES, version: VERSION };
+boot();
+void lsGet;

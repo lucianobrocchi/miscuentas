@@ -132,3 +132,83 @@ test('pago por día: feriados, julio con 15 días y enero sin movilidad', () => 
   assert.equal(daysFor(it, '2026-11'), 20);
   assert.equal(amountFor({ ...it, overrides: { '2026-10': 5 } }, '2026-10'), 5); // el monto fijo manda
 });
+
+// ---------- pago elegido (debts[].planned) y payments por mes ----------
+const conTarjeta = (extra = {}) => {
+  const st = base();
+  st.debts = [{ id: 'v', name: 'Visa', kind: 'card', balance: 5000, rate: 0, minPayment: 100, ...extra }];
+  return st;
+};
+
+test('payments: sin pago elegido devuelve mínimo + barrido por deuda y coincide con debtPayments', () => {
+  const m = simulate(conTarjeta()).months;
+  assert.equal(m[0].payments.v, 1000); // 100 de mínimo + 900 que sobran
+  assert.equal(m[0].debtPayments, 1000);
+  assert.equal(m[0].debts.v, 4000);
+});
+
+test('planned: el pago elegido reemplaza mínimo y barrido; lo que no se paga queda en caja', () => {
+  const st = conTarjeta({ planned: { '2026-10': 300 } });
+  const m = simulate(st).months;
+  assert.equal(m[0].payments.v, 300);
+  assert.equal(m[0].debts.v, 4700);
+  assert.equal(m[0].free, 700); // 1000 - 300
+  assert.equal(m[0].cash, 700); // el resto no va a la tarjeta
+  assert.equal(m[1].payments.v, 1000); // sin plan, vuelve el barrido
+  assert.equal(m[1].cash, 700);
+});
+
+test('planned: elegir pagar menos que el mínimo o cero se respeta', () => {
+  const m = simulate(conTarjeta({ planned: { '2026-10': 40, '2026-11': 0 } })).months;
+  assert.equal(m[0].payments.v, 40);
+  assert.equal(m[0].cash, 960);
+  assert.equal(m[1].payments.v, 0);
+  assert.equal(m[1].debts.v, 4960);
+});
+
+test('planned: se topea al saldo y no afecta a otras deudas', () => {
+  const st = base();
+  st.debts = [
+    { id: 'v', name: 'Visa', kind: 'card', balance: 200, rate: 0, minPayment: 0, planned: { '2026-10': 5000 } },
+    { id: 'p', name: 'Préstamo', kind: 'loan', balance: 3000, rate: 0, minPayment: 0 },
+  ];
+  const m = simulate(st).months;
+  assert.equal(m[0].payments.v, 200);
+  assert.equal(m[0].debts.v, 0);
+  assert.equal(m[0].payments.p, 800); // lo que queda del mes va a la otra deuda
+});
+
+test('planned: una deuda con pago elegido no recibe el barrido de ese mes', () => {
+  const st = base();
+  st.debts = [
+    { id: 'v', name: 'Visa', kind: 'card', balance: 5000, rate: 10, minPayment: 0, planned: { '2026-10': 100 } },
+    { id: 'p', name: 'Préstamo', kind: 'loan', balance: 5000, rate: 0, minPayment: 0 },
+  ];
+  const m = simulate(st).months;
+  assert.equal(m[0].payments.v, 100);
+  assert.equal(m[0].payments.p, 900);
+  assert.equal(m[0].debtPayments, 1000);
+});
+
+test('planned vacío o null: se ignora (rige el comportamiento de siempre)', () => {
+  const a = simulate(conTarjeta()).months;
+  const b = simulate(conTarjeta({ planned: { '2026-10': null, '2026-11': '' } })).months;
+  assert.deepEqual(b.map((x) => x.debts.v), a.map((x) => x.debts.v));
+});
+
+test('planned: si el pago elegido deja el mes en falta, el faltante se financia en la tarjeta', () => {
+  const st = conTarjeta({ planned: { '2026-10': 1500 } });
+  const m = simulate(st).months;
+  assert.equal(m[0].free, -500);
+  assert.equal(m[0].shortfall, 500);
+  assert.equal(m[0].debts.v, 5000 - 1500 + 500);
+});
+
+test('payments incluye la deuda de faltante financiado', () => {
+  const st = base();
+  st.expenses = [{ id: 'e', amount: 1500 }];
+  const m = simulate(st).months;
+  assert.equal(m[0].payments._deficit, 0);
+  assert.equal(m[1].payments._deficit, 0);
+  assert.equal(m[0].debts._deficit, 500);
+});

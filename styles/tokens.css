@@ -1,0 +1,112 @@
+/* ==========================================================================
+   Mis Cuentas 2.0 · tokens de diseño
+   ÚNICO archivo donde se permiten colores hexadecimales o rgba().
+   Claro por defecto · oscuro automático (prefers-color-scheme) · forzable con
+   html[data-theme="light|dark"].
+   MANTENER SINCRONIZADOS los dos bloques oscuros (automático y forzado).
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* superficies */
+  --bg: #F6F3EC; --surface: #FFFFFF; --surface-2: #EEEAE0; --line: #E2DCCD; --field-border: #7D8882;
+  /* texto */
+  --ink: #14231F; --ink-2: #43544E; --ink-3: #5C6D66;
+  /* marca */
+  --brand: #0B5A4A; --brand-soft: #DDEEE8; --btn-bg: #0B5A4A; --btn-fg: #FFFFFF;
+  /* hero (siempre profundo, en claro y oscuro) */
+  --hero-bg: #0C4A3E; --hero-glow: #136452; --hero-ink: #FFFFFF; --hero-ink-2: #BFD8D0;
+  --hero-tile: rgba(255,255,255,.10); --hero-line: rgba(255,255,255,.14);
+  --on-hero-ok: #7FE0A8; --on-hero-warn: #F2B84B; --on-hero-bad: #FFA08A;
+  --chip-ok-bg: #9BEBBF;   --chip-ok-fg: #0C3A2F;
+  --chip-warn-bg: #FBE3A6; --chip-warn-fg: #5B3600;
+  --chip-bad-bg: #FFD3C8;  --chip-bad-fg: #7A2415;
+  /* estados (texto / fondo / barra) */
+  --ok-fg: #14663F;   --ok-bg: #E0F1E6;   --ok-bar: #1E8A5A;
+  --warn-fg: #855000; --warn-bg: #FBEDCB; --warn-bar: #B87500;
+  --bad-fg: #A33826;  --bad-bg: #FADFD7;  --bad-bar: #C4472F;
+  --info-fg: #2A5A8C; --info-bg: #E1ECF8;           /* estimado / falta un dato / me deben */
+  --focus: #0B5A4A; --scrim: rgba(10,20,17,.5);
+  --shadow-card: 0 1px 2px rgba(20,35,31,.06), 0 10px 24px -12px rgba(20,35,31,.18);
+  --shadow-sheet: 0 -8px 32px rgba(20,35,31,.16);
+  --shadow-pop: 0 2px 6px rgba(20,35,31,.14), 0 14px 32px -10px rgba(20,35,31,.3);
+  --seg-on-shadow: 0 1px 3px rgba(20,35,31,.14);
+  --card-border: transparent;   /* en oscuro: 1px var(--line) */
+
+  /* extras de uso interno (derivados de la paleta; ver contrast.test.js) */
+  --toast-bg: var(--ink); --toast-fg: var(--bg);
+  --toast-link: #7FE0A8;   /* acción del toast sobre --toast-bg */
+  --tabbar-bg: rgba(255,255,255,.94);
+
+  /* marca (mosaico crema con barras pino; igual en claro y oscuro) */
+  --mark-bg: #F6F3EC; --mark-bar: #0B5A4A;
+
+  /* forma */
+  --r-hero: 32px; --r-card: 24px; --r-btn: 16px; --r-field: 16px; --r-chip: 99px; --r-sheet: 28px; --r-icon: 14px;
+  /* espacio (base 4) */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px;
+  --gutter: 16px; --gap: 12px;
+  --tabbar-h: 72px;
+  --ease: cubic-bezier(.2,.8,.2,1);
+
+  /* tipografía */
+  --font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* escala en rem (1rem = 16px; escala con el tamaño de letra elegido) */
+  --t-hero: clamp(2.5rem, 13vw, 3.5rem);   /* 40 a 56px */
+  --t-display: 2.75rem;                    /* 44/48 · cifras de tarjeta */
+  --t-q: 2rem;                             /* 32/38 · pregunta de onboarding */
+  --t-big: 2rem;                           /* 32/36 */
+  --t-date: 1.625rem;                      /* 26/32 */
+  --t-h1: 1.875rem;                        /* 30/36 */
+  --t-sheet: 1.5rem;                       /* 24/30 */
+  --t-h2: 1.25rem;                         /* 20/26 */
+  --t-body: 1.125rem;                      /* 18/28 */
+  --t-row: 1.125rem;                       /* 18/24 */
+  --t-small: 1rem;                         /* 16/22 · mínimo absoluto */
+}
+
+/* ---- oscuro automático ---- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1512; --surface: #16211D; --surface-2: #1F2D28; --line: #2B3B35; --field-border: #6F8279;
+    --ink: #EDF4F0; --ink-2: #B9C9C1; --ink-3: #93A79F;
+    --brand: #5ED0AC; --brand-soft: #173A32; --btn-bg: #4CC9A3; --btn-fg: #062B22;
+    --hero-bg: #12372F; --hero-glow: #1A4A3F;
+    --ok-fg: #6FD9A2;   --ok-bg: #143427;   --ok-bar: #6FD9A2;
+    --warn-fg: #F2BA52; --warn-bg: #3A2D0F; --warn-bar: #F2BA52;
+    --bad-fg: #FF9A82;  --bad-bg: #40201A;  --bad-bar: #FF9A82;
+    --info-fg: #8DB9F0; --info-bg: #172B44;
+    --focus: #5ED0AC; --scrim: rgba(0,0,0,.62);
+    --shadow-card: none; --shadow-sheet: none; --shadow-pop: 0 0 0 1px #2B3B35;
+    --seg-on-shadow: none;
+    --card-border: var(--line);
+    --toast-bg: #EDF4F0; --toast-fg: #0D1512; --toast-link: #0B5A4A;
+    --tabbar-bg: rgba(22,33,29,.94);
+  }
+}
+
+/* ---- oscuro forzado ---- */
+:root[data-theme="dark"] {
+  --bg: #0D1512; --surface: #16211D; --surface-2: #1F2D28; --line: #2B3B35; --field-border: #6F8279;
+  --ink: #EDF4F0; --ink-2: #B9C9C1; --ink-3: #93A79F;
+  --brand: #5ED0AC; --brand-soft: #173A32; --btn-bg: #4CC9A3; --btn-fg: #062B22;
+  --hero-bg: #12372F; --hero-glow: #1A4A3F;
+  --ok-fg: #6FD9A2;   --ok-bg: #143427;   --ok-bar: #6FD9A2;
+  --warn-fg: #F2BA52; --warn-bg: #3A2D0F; --warn-bar: #F2BA52;
+  --bad-fg: #FF9A82;  --bad-bg: #40201A;  --bad-bar: #FF9A82;
+  --info-fg: #8DB9F0; --info-bg: #172B44;
+  --focus: #5ED0AC; --scrim: rgba(0,0,0,.62);
+  --shadow-card: none; --shadow-sheet: none; --shadow-pop: 0 0 0 1px #2B3B35;
+  --seg-on-shadow: none;
+  --card-border: var(--line);
+  --toast-bg: #EDF4F0; --toast-fg: #0D1512; --toast-link: #0B5A4A;
+  --tabbar-bg: rgba(22,33,29,.94);
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
+
+/* ---- tamaño de letra (Más > Apariencia). Todo está en rem ---- */
+html { font-size: 100%; }
+html[data-fontsize="grande"] { font-size: 112.5%; }
+html[data-fontsize="mas-grande"] { font-size: 125%; }
