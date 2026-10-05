@@ -222,7 +222,7 @@ export const fmt = {
     if (a < 1000) return sign + a;
     if (Math.round(a / 1000) < 1000) return `${sign}${Math.round(a / 1000)} mil`;
     const m = a / 1e6;
-    const txt = m >= 10 ? String(Math.round(m)) : (Math.round(m * 10) / 10).toFixed(1).replace('.', ',').replace(/,0$/, '');
+    const txt = String(Math.round(m * 10) / 10).replace('.', ',');
     return `${sign}${txt} M`;
   },
   /** 6.493 -> '6,49%' (coma, hasta `dec` decimales sin ceros de más). */

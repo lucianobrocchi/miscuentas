@@ -2,6 +2,7 @@
 // Vive en la capa superior (popover) para verse también cuando hay una hoja abierta.
 
 import { h, reducedMotion } from './dom.js';
+import { txt } from './components.js';
 
 let current = null;
 
@@ -28,9 +29,9 @@ export function toast(message, { actionLabel, onAction, duration = 6000, tone } 
   let paused = false;
   let removed = false;
 
-  const msg = h('span', { class: 'toast-msg' }, message);
+  const msg = h('span', { class: 'toast-msg' }, txt(message));
   const action = actionLabel
-    ? h('button', { class: 'toast-action', type: 'button', onclick: () => { api.remove(); onAction?.(); } }, actionLabel)
+    ? h('button', { class: 'toast-action', type: 'button', onclick: () => { api.remove(); onAction?.(); } }, txt(actionLabel))
     : null;
   const el = h('div', { class: ['toast', tone && `toast-${tone}`], popover: 'manual' }, msg, action);
 

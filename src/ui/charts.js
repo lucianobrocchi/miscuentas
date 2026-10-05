@@ -8,7 +8,7 @@
 // deuda, SVG), timeline (liberaciones, tipo Gantt), stacked (barra apilada de quién debe qué).
 
 import { h, icon, fmt, remPx, srMoney, statusInfo, toneOf } from './dom.js';
-import { amt, disclosure, dataTable, divergingBar, divergingScale, chip, pips, statusGlyph } from './components.js';
+import { amt, txt, disclosure, dataTable, divergingBar, divergingScale, chip, pips, statusGlyph } from './components.js';
 
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const MES_LARGO = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -21,11 +21,13 @@ export const longMonth = (k) => { const [y, m] = keyParts(k); return `${MES_LARG
 /**
  * Tira de meses. HTML+CSS: cada columna es un <button> (>= 48px de alto táctil).
  * items: [{ key:'2026-10', label:'Oct', value:105948, state:'bien'|'justo'|'cubierto'|'falta', current:true, estimated:false,
- *           onClick, ariaLabel }]
+ *           onClick, ariaLabel }]   (también sirve la tira de derive.hero(): { key, mes, free, code, actual })
  * opts: { showValues: items.length <= 6, onHero: true, barWidth: 34 (28 si hay más de 6), ariaLabel }
  * Escala común k = min(36/maxPositivo, 20/maxNegativo); alto = max(6, |v|*k). Color por estado.
  */
-export function monthStrip(items, { showValues, onHero = true, barWidth, ariaLabel = 'Los próximos meses' } = {}) {
+export function monthStrip(rawItems, { showValues, onHero = true, barWidth, ariaLabel = 'Los próximos meses' } = {}) {
+  // acepta también la tira de derive.hero() ({ key, mes, free, code, actual }) sin tener que convertirla
+  const items = rawItems.map((it) => ({ ...it, label: it.label ?? it.mes, value: it.value ?? it.free, state: it.state ?? it.code, current: it.current ?? it.actual }));
   const n = items.length;
   const vals = showValues ?? n <= 6;
   const bw = barWidth ?? (n > 6 ? 28 : 34);
@@ -73,7 +75,7 @@ export function monthRows(items, { mode = '4', ariaLabel = 'Los próximos meses'
          h('span', { class: 'mrow-ev', 'aria-hidden': 'true', title: it.event || null }, it.event ? icon(it.eventIcon || 'destello', { size: 'sm' }) : null)]
       : [h('span', { class: 'mrow-head', 'aria-hidden': 'true' }, h('span', { class: 'mrow-name t-h2' }, it.name), chip(s.label, { tone: s.tone, icon: s.shape })),
          h('span', { class: 'mrow-main', 'aria-hidden': 'true' }, h('span', { class: ['mrow-num', `tone-${s.tone}`] }, amt(it.value)), bar),
-         it.event ? h('span', { class: 'mrow-event', 'aria-hidden': 'true' }, it.event) : null];
+         it.event ? h('span', { class: 'mrow-event', 'aria-hidden': 'true' }, txt(it.event)) : null];
     return it.onClick ? h('button', common, kids) : h('div', { class: common.class, role: 'listitem', 'aria-label': common['aria-label'] }, kids);
   });
   return h('div', { class: ['card rows mrows'], role: 'list', 'aria-label': ariaLabel }, rows);
@@ -146,7 +148,7 @@ export function debtLine({ series, height = 160, ariaLabel, tableCaption = 'Deud
         const wEst = text.length * fs * 0.58;
         let anchor = 'end'; let tx = lx + 4;
         if (lx - wEst < padL) { anchor = 'start'; tx = lx - 4; }
-        const box = { y: ly - fs * 0.8, x1: anchor === 'end' ? tx - wEst : tx, x2: anchor === 'end' ? tx : tx + wEst };
+        const box = { y: ly - fs * 1.05, x1: anchor === 'end' ? tx - wEst : tx, x2: anchor === 'end' ? tx : tx + wEst };
         const clash = (a, b2) => a.x1 < b2.x2 && b2.x1 < a.x2 && Math.abs(a.y - b2.y) < fs * 1.15;
         let guard = 0;
         while (labelBoxes.some((b2) => clash(box, b2)) && guard++ < 4) box.y -= fs * 1.25;
@@ -197,7 +199,7 @@ export function timeline({ items, from, to, todayKey, ariaLabel = 'Cuándo se te
   const todayLeft = pct(todayKey || from);
   const axis = h('div', { class: 'tl-axis', 'aria-hidden': 'true' },
     h('span', { class: 'tl-now-lbl', style: { left: `${todayLeft}%` } }, 'Hoy'),
-    ticks.map((t) => h('span', { class: 'tl-tick-lbl', style: { left: `${t.left}%` } }, String(t.year))));
+    ticks.map((t) => h('span', { class: ['tl-tick-lbl', t.left > 86 && 'end'], style: { left: `${t.left}%` } }, String(t.year))));
   const rows = items.map((it, i) => {
     const startP = it.start ? pct(it.start) : todayLeft;
     const endP = it.pending ? Math.min(100, startP + 22) : Math.max(pct(it.end) , startP + 2);
@@ -205,19 +207,19 @@ export function timeline({ items, from, to, todayKey, ariaLabel = 'Cuándo se te
       ticks.map((t) => h('span', { class: 'tl-grid', style: { left: `${t.left}%` } })),
       h('span', { class: ['tl-fill', `tl-${toneOf(it.tone || (it.pending ? 'info' : 'brand'))}`, it.pending && 'dashed'], style: { left: `${startP}%`, width: `${Math.max(1.5, endP - startP)}%`, '--i': i } }));
     const kids = [
-      h('span', { class: 'tl-top' }, h('span', { class: 'tl-label' }, it.label), h('span', { class: ['tl-date', it.pending && 'tone-info'] }, it.pending ? 'a completar' : it.dateLabel)),
+      h('span', { class: 'tl-top' }, h('span', { class: 'tl-label' }, txt(it.label)), h('span', { class: ['tl-date', it.pending && 'tone-info'] }, it.pending ? 'a completar' : it.dateLabel)),
       track,
-      h('span', { class: 'tl-bottom' }, h('span', { class: 'tl-sub' }, it.sub), it.pipsInfo ? pips({ total: it.pipsInfo.total, paid: it.pipsInfo.paid }) : null),
+      h('span', { class: 'tl-bottom' }, h('span', { class: 'tl-sub' }, txt(it.sub)), it.pipsInfo ? pips({ total: it.pipsInfo.total, paid: it.pipsInfo.paid }) : null),
     ];
     const label = it.ariaLabel || `${it.label}. ${it.sub || ''}. ${it.pending ? 'Falta completar datos' : 'Termina en ' + it.dateLabel}`;
     return it.onClick
       ? h('button', { class: 'tl-row', type: 'button', role: 'listitem', 'aria-label': label, onclick: it.onClick }, kids)
       : h('div', { class: 'tl-row', role: 'listitem', 'aria-label': label }, kids);
   });
-  const nowLine = h('span', { class: 'tl-now', style: { left: `${todayLeft}%` }, 'aria-hidden': 'true' });
+  const nowLine = h('span', { class: 'tl-now', style: { '--p': String(todayLeft / 100) }, 'aria-hidden': 'true' });
   return h('div', { class: 'card timeline', role: 'list', 'aria-label': ariaLabel },
     h('div', { class: 'tl-head' }, axis),
-    h('div', { class: 'tl-body', style: { '--today': `${todayLeft}%` } }, nowLine, rows));
+    h('div', { class: 'tl-body' }, nowLine, rows));
 }
 
 // ===================================================================== 5) barra apilada "quién debe qué"
@@ -234,7 +236,7 @@ export function stacked({ parts, ariaLabel, cls }) {
     h('div', { class: 'stackbar-legend', 'aria-hidden': 'true' },
       segs.map((p) => h('span', { class: 'stackbar-item' },
         h('span', { class: ['stackbar-key', `stackbar-${toneOf(p.tone || 'brand')}`] }),
-        h('span', { class: 'stackbar-name' }, p.labelNode || p.label), h('span', { class: 'stackbar-amt' }, amt(p.value))))));
+        h('span', { class: 'stackbar-name' }, p.labelNode || txt(p.label)), h('span', { class: 'stackbar-amt' }, amt(p.value))))));
 }
 
 export { statusGlyph };

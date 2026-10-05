@@ -10,6 +10,7 @@ import { toast } from './ui/toast.js';
 import * as ui from './ui/components.js';
 import * as fields from './ui/fields.js';
 import * as charts from './ui/charts.js';
+import { NAV, buildNav, paintNav as paintNavActive } from './ui/nav.js';
 import { h, icon, fmt, announce, lsGet } from './ui/dom.js';
 
 const VERSION = '2.0.0';
@@ -27,14 +28,6 @@ const ROUTES = [
   { name: 'mas', path: '/mas/:sec?', screen: 'mas', tab: 'mas', title: 'Más', parent: (r) => (r.params.sec ? '#/mas' : null) },
   { name: 'bienvenida', path: '/bienvenida', screen: 'bienvenida', notabs: true, title: 'Bienvenida' },
   { name: 'armar', path: '/armar/:step', screen: 'onboarding', notabs: true, title: 'Armá tu panorama' },
-];
-
-const NAV = [
-  { id: 'hoy', label: 'Hoy', icon: 'home', href: '#/hoy' },
-  { id: 'meses', label: 'Meses', icon: 'calendario', href: '#/meses' },
-  { id: 'puedo', label: '¿Me alcanza?', icon: 'ayuda-circulo', href: '#/puedo', mid: true },
-  { id: 'deudas', label: 'Deudas', icon: 'tarjeta', href: '#/deudas' },
-  { id: 'mas', label: 'Más', icon: 'mas-puntos', href: '#/mas' },
 ];
 
 // ---------------------------------------------------------------- fecha de "hoy" (inyectable: ?hoy=2026-10-04)
@@ -62,14 +55,16 @@ function applyPrefs() {
   const s = state.settings || {};
   const root = document.documentElement;
   if (s.theme === 'light' || s.theme === 'dark') root.setAttribute('data-theme', s.theme); else root.removeAttribute('data-theme');
-  if (s.fontSize === 'grande' || s.fontSize === 'mas-grande') root.setAttribute('data-fontsize', s.fontSize); else root.removeAttribute('data-fontsize');
+  if (s.fontSize === 'grande' || s.fontSize === 'masgrande') root.setAttribute('data-fontsize', s.fontSize); else root.removeAttribute('data-fontsize');
   if (s.privacy) root.setAttribute('data-privacy', 'on'); else root.removeAttribute('data-privacy');
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
     if (!metaOrig.has(m)) metaOrig.set(m, m.getAttribute('content'));
-    const forced = s.theme === 'dark' ? '#0D1512' : s.theme === 'light' ? '#F6F3EC' : null;
+    // tema forzado: el color de la barra del navegador es el fondo (--bg) del tema elegido; en automático se restauran los de index.html
+    const forced = s.theme === 'dark' || s.theme === 'light' ? getComputedStyle(root).getPropertyValue('--bg').trim() : '';
     m.setAttribute('content', forced || metaOrig.get(m));
   });
   // espejo para el script de index.html (evita el destello al abrir)
+  ui.setKnownNames(state.people);   // para que el ojo también oculte los nombres que aparecen dentro de las frases
   paintEye();
 }
 
@@ -208,18 +203,8 @@ function paintEye() {
 }
 
 // ---------------------------------------------------------------- barra inferior y riel
-function buildNav() {
-  const tabs = document.getElementById('tabbar-in');
-  tabs.replaceChildren(...NAV.map((n) => h('a', { class: ['tab', n.mid && 'mid'], href: n.href, dataset: { tab: n.id }, onclick: (e) => tabClick(e, n) },
-    h('span', { class: 'cap' }, icon(n.icon)), h('span', { class: 'lbl' }, n.label), h('span', { class: 'dot', hidden: true, 'aria-hidden': 'true' }))));
-  const rail = document.getElementById('rail');
-  rail.replaceChildren(
-    h('div', { class: 'rail-brand' }, h('svg', { class: 'brandmark', viewBox: '0 0 64 64', 'aria-hidden': 'true', focusable: 'false' }, h('use', { href: '#i-marca' })), h('b', null, 'Mis Cuentas')),
-    h('nav', { 'aria-label': 'Menú principal' }, NAV.map((n, i) => h('a', { class: ['rail-item', n.mid && 'mid'], href: n.href, dataset: { tab: n.id }, title: `Atajo: tecla ${i + 1}`, onclick: (e) => tabClick(e, n) },
-      icon(n.icon), h('span', null, n.label), h('span', { class: 'dot', hidden: true, 'aria-hidden': 'true' })))),
-    h('div', { class: 'rail-foot' },
-      h('button', { type: 'button', class: 'rail-eye', id: 'rail-eye', 'aria-pressed': 'false', onclick: () => setPrivacy(!ctx.isPrivate()) }, icon('ojo'), h('span', null, 'Ocultar montos')),
-      h('p', { class: 'rail-note' }, 'Tus datos quedan en este equipo.')));
+function buildShellNav() {
+  buildNav({ tabbar: document.getElementById('tabbar-in'), rail: document.getElementById('rail'), onClick: tabClick, onEye: () => setPrivacy(!ctx.isPrivate()) });
 }
 function tabClick(e, n) {
   const r = router.current();
@@ -227,22 +212,10 @@ function tabClick(e, n) {
   if (sheet.isOpen()) { e.preventDefault(); nav(n.href); }
 }
 function paintNav(route) {
-  const active = route?.tab || null;
-  document.querySelectorAll('[data-tab]').forEach((a) => {
-    if (a.dataset.tab === active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
-  });
+  paintNavActive(route?.tab || null, badges);
   document.body.toggleAttribute('data-notabs', !!route?.notabs);
 }
-function paintBadges() {
-  document.querySelectorAll('[data-tab]').forEach((a) => {
-    const dot = a.querySelector('.dot');
-    if (!dot) return;
-    const on = !!badges[a.dataset.tab];
-    dot.hidden = !on;
-    const base = NAV.find((n) => n.id === a.dataset.tab)?.label || '';
-    if (on) a.setAttribute('aria-label', `${base}, hay algo para completar`); else a.removeAttribute('aria-label');
-  });
-}
+function paintBadges() { paintNavActive(router?.current()?.tab || null, badges); }
 
 // ---------------------------------------------------------------- avisos fijos (ejemplo, sin internet)
 function paintBanners() {
@@ -265,7 +238,8 @@ async function loadMine() {
   });
   if (!ok) return;
   const store = await import('./store.js');
-  update(() => store.emptyState(today()), { rerender: false });
+  const prefs = { theme: state.settings?.theme, fontSize: state.settings?.fontSize, privacy: state.settings?.privacy };
+  update(() => { const e = store.emptyState(today()); Object.assign(e.settings, Object.fromEntries(Object.entries(prefs).filter(([, v]) => v !== undefined))); return e; }, { rerender: false });
   paintBanners();
   nav('#/armar/1');
 }
@@ -289,7 +263,8 @@ async function loadScreen(name) {
 function placeholder(root, title, text, retry) {
   root.replaceChildren(ui.empty({
     title, text, art: 'obra',
-    action: retry ? { label: 'Probar de nuevo', onClick: retry } : { label: 'Volver a Hoy', href: '#/hoy' },
+    // en Hoy un "Volver a Hoy" no lleva a ningún lado: ahí no se ofrece acción
+    action: retry ? { label: 'Probar de nuevo', onClick: retry } : (router.current()?.name === 'hoy' ? undefined : { label: 'Volver a Hoy', href: '#/hoy' }),
   }));
 }
 
@@ -319,6 +294,7 @@ async function render({ keepScroll = false } = {}) {
   paintNav(route);
   paintBanners();
 
+  sheet.beginRender();
   if (!def || typeof def.mount !== 'function') {
     placeholder(root, 'Esta pantalla se está construyendo', 'Mientras tanto podés seguir usando el resto de la app.');
   } else {
@@ -331,6 +307,7 @@ async function render({ keepScroll = false } = {}) {
       placeholder(root, 'Algo no salió como esperábamos', 'Tus datos están a salvo. Probá de nuevo; si sigue igual, volvé a Hoy.', () => render());
     }
   }
+  sheet.endRender();
   paintBadges();
   window.scrollTo({ top: scrollY });
 }
@@ -398,7 +375,7 @@ function boot() {
     routes: ROUTES, fallback: defaultHash(), onChange: onRoute,
   });
   applyPrefs();
-  buildNav();
+  buildShellNav();
   paintEye();
   wireGlobalEvents();
   if (!location.hash || location.hash === '#' || location.hash === '#/') history.replaceState(null, '', defaultHash());

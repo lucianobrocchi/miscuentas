@@ -49,7 +49,7 @@
 /* ---------------- botones ---------------- */
 .btn {
   display: flex; align-items: center; justify-content: center; gap: var(--s2); width: 100%;
-  min-height: 56px; padding: 0 var(--s5); border-radius: var(--r-btn); border: 2px solid transparent;
+  min-height: 56px; padding: 10px var(--s5); border-radius: var(--r-btn); border: 2px solid transparent;
   font-size: var(--t-row); line-height: 1.25; font-weight: 700; text-decoration: none; text-align: center; cursor: pointer;
   transition: transform 120ms var(--ease), filter 120ms; -webkit-user-select: none; user-select: none;
 }
@@ -59,11 +59,11 @@
 .btn-primary { background: var(--btn-bg); color: var(--btn-fg); }
 .btn-primary:hover:not([disabled]) { filter: brightness(1.06); }
 .btn-secondary { background: transparent; color: var(--brand); border-color: var(--brand); }
-.btn-text { background: transparent; color: var(--brand); min-height: 48px; padding: 0 var(--s3); }
-.btn-ghost { background: transparent; color: var(--ink-2); min-height: 48px; padding: 0 var(--s3); }
+.btn-text { background: transparent; color: var(--brand); min-height: 48px; padding: 6px var(--s3); }
+.btn-ghost { background: transparent; color: var(--ink-2); min-height: 48px; padding: 6px var(--s3); }
 .btn-danger { background: var(--bad-bg); color: var(--bad-fg); border-color: var(--bad-bar); }
 .btn-onhero { background: var(--hero-ink); color: var(--hero-bg); }
-.btn-onhero-ghost { background: transparent; color: var(--hero-ink); min-height: 48px; border-color: var(--hero-line); }
+.btn-onhero-ghost { background: transparent; color: var(--hero-ink); min-height: 48px; padding: 8px var(--s4); border-color: var(--hero-line); }
 .btn .icon { width: 22px; height: 22px; }
 .link {
   display: inline-flex; align-items: center; gap: var(--s1); min-height: 48px; padding: 0 var(--s1);
@@ -115,24 +115,40 @@
 .chipbtn[disabled] { opacity: .45; cursor: not-allowed; }
 
 /* ---------------- filas (72px) ---------------- */
+/* Grilla: ícono | texto | valor | chevron. El detalle (.row-sub) ocupa también el lugar del valor cuando no hay
+   segunda línea a la derecha (clase .row-wide), así los textos largos no se parten en torres angostas. */
 .row {
-  display: flex; align-items: center; gap: 14px; width: 100%; min-height: 72px; padding: 12px 16px; text-align: left;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; align-content: center;
+  width: 100%; min-height: 72px; padding: 12px 16px; text-align: left;
   color: inherit; text-decoration: none; background: transparent; position: relative;
 }
+.row > .icon-tile { grid-column: 1; grid-row: 1 / span 3; margin-right: 14px; }
+.row-text, .row-end { display: contents; }
+.row-title { grid-column: 2; grid-row: 1; font-size: var(--t-row); line-height: 1.333; font-weight: 700; }
+.row-sub { grid-column: 2; grid-row: 2; font-size: var(--t-small); line-height: 1.375; color: var(--ink-2); }
+.row-wide .row-sub { grid-column: 2 / span 2; }
+.row-value { grid-column: 3; grid-row: 1; justify-self: end; padding-left: 12px; text-align: right; font-size: var(--t-row); line-height: 1.333; font-weight: 800; white-space: nowrap; }
+.row-value.t-big { font-size: var(--t-big); line-height: 1.125; grid-row: 1 / span 2; }
+.row-value.t-date { font-size: var(--t-date); line-height: 1.2308; white-space: normal; overflow-wrap: normal; grid-row: 1 / span 2; }
+.row-valsub { grid-column: 3; grid-row: 2; justify-self: end; padding-left: 12px; font-size: var(--t-small); line-height: 1.375; color: var(--ink-2); font-weight: 600; text-align: right; }
+.row-end > .chip { grid-column: 3; grid-row: 2; justify-self: end; margin: 2px 0 0 12px; }
+.row:not(.has-value) .row-title, .row:not(.has-value) .row-sub { grid-column: 2 / span 2; }
+.row:not(.has-value) .row-end > .chip { grid-column: 2; grid-row: 3; justify-self: start; margin: 6px 0 0; }
+/* celulares angostos o letra muy grande: lo que va a la derecha del detalle (chip, subtítulo del valor) baja a su propio renglón */
+@media (max-width: 380px) {
+  .row.has-value .row-end > .chip, .row.has-value .row-valsub { grid-column: 2 / span 2; grid-row: 3; justify-self: start; padding-left: 0; margin: 4px 0 0; text-align: left; }
+}
+html[data-fontsize="masgrande"] .row.has-value .row-end > .chip, html[data-fontsize="masgrande"] .row.has-value .row-valsub { grid-column: 2 / span 2; grid-row: 3; justify-self: start; padding-left: 0; margin: 4px 0 0; text-align: left; }
+.row-chev { grid-column: 4; grid-row: 1 / span 3; margin-left: 4px; color: var(--ink-3); width: 20px; height: 20px; }
 .row-lg { min-height: 88px; }
+/* celulares angostos (360px): el número grande baja debajo del texto para que el título no se parta en tres renglones */
+@media (max-width: 380px) {
+  .row-value.t-big, .row-value.t-date { grid-column: 2 / span 2; grid-row: 3; justify-self: start; padding-left: 0; text-align: left; margin-top: 2px; }
+}
 .row-action { cursor: pointer; }
 .row-action:hover { background: var(--surface-2); }
 .row-action:active { background: var(--surface-2); }
 .row:focus-visible { outline-offset: -3px; border-radius: var(--r-card); }
-.row-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
-.row-title { font-size: var(--t-row); line-height: 1.333; font-weight: 700; }
-.row-sub { font-size: var(--t-small); line-height: 1.375; color: var(--ink-2); }
-.row-end { display: flex; flex-direction: column; align-items: flex-end; text-align: right; flex: 0 1 auto; max-width: 48%; gap: 2px; }
-.row-value { font-size: var(--t-row); line-height: 1.333; font-weight: 800; white-space: nowrap; }
-.row-value.t-big, .row-value.t-date { white-space: normal; }
-.row-value.t-date { text-align: right; }
-.row-valsub { font-size: var(--t-small); line-height: 1.375; color: var(--ink-2); font-weight: 600; }
-.row-chev { color: var(--ink-3); margin-left: -6px; }
 .row-pending { margin: 6px; width: calc(100% - 12px); border: 2px dashed var(--info-fg); border-radius: 18px; background: var(--info-bg); }
 
 /* ---------------- segmentado y opciones ---------------- */
@@ -148,7 +164,7 @@
 
 .opts { display: flex; flex-direction: column; gap: var(--s2); }
 .opt {
-  position: relative; display: flex; align-items: flex-start; gap: var(--s3); min-height: 88px; padding: 14px 16px;
+  position: relative; display: flex; align-items: flex-start; gap: var(--s3); min-height: 72px; padding: 14px 16px;
   border: 2px solid var(--line); border-radius: 20px; background: var(--surface); cursor: pointer;
 }
 .opt-in { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -287,6 +303,7 @@
 .pbar-ok .pbar-fill { background: var(--ok-bar); } .pbar-warn .pbar-fill { background: var(--warn-bar); } .pbar-bad .pbar-fill { background: var(--bad-bar); } .pbar-info .pbar-fill { background: var(--info-fg); }
 .pbar-slim { height: 8px; }
 .pbar.dashed { background: transparent; border: 2px dashed var(--info-fg); }
+.pbar.dashed .pbar-fill { opacity: .35; }
 
 .psteps { display: flex; gap: 6px; }
 .pstep { flex: 1 1 0; height: 6px; border-radius: 3px; background: var(--surface-2); }
@@ -348,7 +365,11 @@ button.mcol:active { transform: scale(.97); }
 .mcol.now .mname { color: var(--hero-ink); font-weight: 800; }
 .on-card .mcol.now .mname { color: var(--ink); }
 .mnow { display: block; width: 6px; height: 6px; margin-top: 2px; border-radius: 50%; background: currentColor; }
-.mstrip.dense .mname, .mstrip.dense .mval { font-size: var(--t-small); }
+/* letra muy grande (o grande en celulares angostos): la tira de 4 meses pasa a 2 columnas para que los valores no se pisen */
+html[data-fontsize="masgrande"] .mstrip:not(.dense) { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--s3); }
+@media (max-width: 380px) { html[data-fontsize="grande"] .mstrip:not(.dense) { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--s3); } }
+.mstrip.dense { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: var(--s3); }
+@media (min-width: 1024px) { .mstrip.dense { grid-template-columns: repeat(var(--n, 12), minmax(0, 1fr)); } }
 
 /* filas de Meses */
 .mrow { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 96px; padding: 14px 16px; text-align: left; color: inherit; background: transparent; cursor: pointer; }
@@ -370,8 +391,11 @@ button.mcol:active { transform: scale(.97); }
 .timeline { overflow: hidden; }
 .tl-head { padding: 12px 16px 0; }
 .tl-axis { position: relative; height: 28px; font-size: var(--t-small); line-height: 1.25; font-weight: 700; color: var(--ink-2); }
-.tl-now-lbl { position: absolute; top: 0; transform: translateX(0); color: var(--ink); }
-.tl-tick-lbl { position: absolute; top: 0; transform: translateX(-50%); }
+.tl-now-lbl { position: absolute; top: 0; color: var(--ink); font-weight: 800; }
+.tl-tick-lbl { position: absolute; top: 0; padding-left: 4px; white-space: nowrap; }
+.tl-tick-lbl.end { transform: translateX(-100%); padding: 0 4px 0 0; }
+.tl-body { position: relative; }
+.tl-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; left: calc(16px + (100% - 32px) * var(--p, 0)); background: var(--ink); opacity: .28; pointer-events: none; z-index: 1; }
 .tl-row { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 96px; padding: 12px 16px; text-align: left; color: inherit; background: transparent; border-top: 1px solid var(--line); }
 button.tl-row { cursor: pointer; }
 button.tl-row:hover { background: var(--surface-2); }

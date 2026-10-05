@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Galería del kit · Mis Cuentas</title>
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles/tokens.css">
+<link rel="stylesheet" href="../styles/base.css">
+<link rel="stylesheet" href="../styles/components.css">
+<link rel="stylesheet" href="../styles/screens.css">
+<style>
+  /* solo de la galería (no se usa en la app) */
+  .kit-bar { position: sticky; top: 0; z-index: 30; background: var(--bg); border-bottom: 1px solid var(--line); padding: var(--s2) 0; display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); align-items: center; }
+  .kit-bar .seg { min-width: 14rem; flex: 1 1 14rem; }
+  .kit-sec { display: flex; flex-direction: column; gap: var(--gap); padding-block: var(--s6); border-bottom: 1px dashed var(--line); }
+  .kit-sec > h2.kit-h { font-size: var(--t-h2); }
+  .kit-note { font-size: var(--t-small); color: var(--ink-3); }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: var(--s2); }
+  .sw { border-radius: var(--r-btn); padding: var(--s3); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; min-height: 5.5rem; justify-content: flex-end; }
+  .sw b { font-size: var(--t-small); }
+  .sw span { font-size: var(--t-small); opacity: .9; }
+  .kit-dark-wrap { background: var(--hero-bg); border-radius: var(--r-hero); padding: var(--s4); }
+  .kit-phone { border: 2px dashed var(--line); border-radius: var(--r-card); padding: var(--s3); overflow: hidden; }
+  .kit-tabbar-demo { position: relative; }
+  .kit-tabbar-demo #tabbar { position: static; }
+</style>
+</head>
+<body>
+<aside id="rail" aria-label="Menú principal"></aside>
+<div id="app">
+  <div id="shell">
+    <div class="wrap">
+      <header class="topbar" id="topbar"></header>
+      <main id="main"><div id="view" tabindex="-1"><p class="loading">Armando la galería…</p></div></main>
+    </div>
+  </div>
+  <nav id="tabbar" aria-label="Menú principal"><div class="tabbar-in" id="tabbar-in"></div></nav>
+</div>
+<div id="sheet-root"></div>
+<div id="toast-root"></div>
+<div id="live" class="sr-only" role="status" aria-live="polite"></div>
+<script type="module" src="kit.js"></script>
+</body>
+</html>

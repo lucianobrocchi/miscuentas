@@ -31,6 +31,54 @@ export function personName(name, index = 0) {
 /** Para textos planos (toasts, aria-labels): devuelve el alias si la privacidad está activa. */
 export const aliasName = (name, index = 0) => (isPrivate() ? `Persona ${index + 1}` : name);
 
+// Nombres conocidos de la familia (app.js los carga con setKnownNames en cada render). Sirven para que txt() proteja
+// también los nombres que aparecen DENTRO de una frase armada por derive ("Si Hijo te devuelve $50.000...").
+let knownNames = [];
+let nameRe = null;
+/** setKnownNames(state.people): la persona con role 'yo' no se oculta; el resto pasa a "Persona N" con el ojo activado. */
+export function setKnownNames(people = []) {
+  knownNames = (people || []).map((p, i) => ({ name: String(p?.name || '').trim(), index: i, role: p?.role })).filter((p) => p.name.length > 1 && p.role !== 'yo');
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  nameRe = knownNames.length
+    ? new RegExp(`(?<![\\p{L}\\p{N}])(${[...knownNames].sort((a, b) => b.name.length - a.name.length).map((p) => esc(p.name)).join('|')})(?![\\p{L}\\p{N}])`, 'gu')
+    : null;
+}
+
+const MONEY_IN_TEXT = /[−-]?\$\d+(?:\.\d{3})*(?:,\d+)?/g;
+/**
+ * Texto con montos y nombres protegidos. txt('Ojo con enero: faltan $342.688') -> ['Ojo con enero: faltan ', <span.amt>$342.688</span>].
+ * Cada "$1.234" (con o sin signo menos) se envuelve en .amt y cada nombre conocido en .pname: con el ojo de privacidad
+ * se ven "••••" y "Persona N". Devuelve un string si no hay nada que proteger. Todos los componentes del kit ya lo aplican a sus
+ * textos (títulos, detalles, botones, toasts, hojas): solo hace falta llamarlo a mano si armás un nodo con h().
+ */
+export function txt(text) {
+  if (typeof text !== 'string' || !text) return text;
+  if (!text.includes('$') && !nameRe) return text;
+  const out = [];
+  const pushNames = (chunk) => {
+    if (!chunk) return;
+    if (!nameRe) { out.push(chunk); return; }
+    let last = 0;
+    nameRe.lastIndex = 0;
+    for (const m of chunk.matchAll(nameRe)) {
+      out.push(chunk.slice(last, m.index));
+      const k = knownNames.find((p) => p.name === m[1]);
+      out.push(personName(m[1], k ? k.index : 0));
+      last = m.index + m[1].length;
+    }
+    out.push(chunk.slice(last));
+  };
+  let last = 0;
+  for (const m of text.matchAll(MONEY_IN_TEXT)) {
+    pushNames(text.slice(last, m.index));
+    out.push(amt(null, { text: m[0] }));
+    last = m.index + m[0].length;
+  }
+  pushNames(text.slice(last));
+  const parts = out.filter((x) => x !== '');
+  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : parts;
+}
+
 // ------------------------------------------------------------------ íconos y chips
 /** Cuadro de ícono 44x44 con fondo del tono: iconTile('tarjeta','warn'). tone: ok|warn|bad|info|brand|neutral. */
 export function iconTile(name, tone = 'brand', { size } = {}) {
@@ -39,14 +87,14 @@ export function iconTile(name, tone = 'brand', { size } = {}) {
 
 /** Chip de lectura (28px). chip('estimado',{tone:'info'}) · chip('Vence el 13',{tone:'info',icon:'calendario'}) */
 export function chip(label, { tone = 'neutral', icon: ic, onHero = false, cls } = {}) {
-  return h('span', { class: ['chip', `chip-${toneOf(tone)}`, onHero && 'chip-hero', cls] }, ic ? icon(ic, { size: 'sm' }) : null, h('span', null, label));
+  return h('span', { class: ['chip', `chip-${toneOf(tone)}`, onHero && 'chip-hero', cls] }, ic ? icon(ic, { size: 'sm' }) : null, h('span', null, txt(label)));
 }
 
 /** Chip de estado con forma y palabra. status('bien') -> "Alcanza". status('falta',{label:'Falta plata'}). onHero para usarlo sobre el hero. */
 export function status(code, { label, onHero = false, cls } = {}) {
   const s = statusInfo(code);
   return h('span', { class: ['chip chip-status', `chip-${s.tone}`, onHero && 'chip-hero', cls] },
-    icon(s.shape, { size: 'sm' }), h('span', null, label || s.label));
+    icon(s.shape, { size: 'sm' }), h('span', null, txt(label || s.label)));
 }
 
 /** Glifo de estado solo (círculo con tilde / cuadrado / triángulo), para el mapa de meses de ¿Me alcanza?. */
@@ -61,7 +109,7 @@ export function chipButton(label, { selected = false, onClick, icon: ic, value, 
     type: 'button', class: ['chipbtn', tone && `chipbtn-${toneOf(tone)}`, cls], 'aria-pressed': String(!!selected), disabled: !!disabled,
     'aria-label': ariaLabel || null, dataset: value != null ? { value } : null,
     onclick: onClick,
-  }, h('span', { class: 'chipbtn-face' }, selected ? icon('tilde', { size: 'sm' }) : (ic ? icon(ic, { size: 'sm' }) : null), h('span', null, label)));
+  }, h('span', { class: 'chipbtn-face' }, selected ? icon('tilde', { size: 'sm' }) : (ic ? icon(ic, { size: 'sm' }) : null), h('span', null, txt(label))));
 }
 
 // ------------------------------------------------------------------ botones y enlaces
@@ -75,7 +123,7 @@ export function btn({ label, icon: ic, iconRight, variant = 'primary', onClick, 
     class: ['btn', `btn-${variant}`, inline && 'btn-inline', cls],
     'aria-label': ariaLabel || null, dataset, autofocus: autofocus || null,
   };
-  const kids = [ic ? icon(ic) : null, h('span', { class: 'btn-label' }, label), iconRight ? icon(iconRight) : null];
+  const kids = [ic ? icon(ic) : null, h('span', { class: 'btn-label' }, txt(label)), iconRight ? icon(iconRight) : null];
   if (href) return h('a', { ...attrs, href, onclick: onClick }, kids);
   return h('button', { ...attrs, type, disabled: !!disabled, onclick: onClick }, kids);
 }
@@ -87,7 +135,7 @@ export function iconButton({ icon: ic, label, onClick, pressed, cls }) {
 
 /** Enlace/acción de texto de 48px de alto: link({label:'Ver todo', href:'#/deudas'}) o con onClick. */
 export function link({ label, href, onClick, icon: ic, cls } = {}) {
-  const kids = [h('span', null, label), ic ? icon(ic, { size: 'sm' }) : null];
+  const kids = [h('span', null, txt(label)), ic ? icon(ic, { size: 'sm' }) : null];
   if (href) return h('a', { class: ['link', cls], href, onclick: onClick }, kids);
   return h('button', { type: 'button', class: ['link', cls], onclick: onClick }, kids);
 }
@@ -101,25 +149,25 @@ export function card(children, { pad = 'md', tone, as = 'section', cls, ariaLabe
 /** Título de sección (20/26 800) con acción opcional a la derecha ("Ver todo"). */
 export function sectionTitle(title, action, { level = 2, cls } = {}) {
   return h('div', { class: ['section-title', cls] },
-    h(`h${level}`, { class: 't-h2' }, title),
+    h(`h${level}`, { class: 't-h2' }, txt(title)),
     action ? link({ label: action.label, href: action.href, onClick: action.onClick }) : null);
 }
 
 /** Título de pantalla (h1 30/36) con bajada opcional. */
 export function pageTitle(title, sub) {
-  return h('div', { class: 'page-title' }, h('h1', { class: 't-h1' }, title), sub ? h('p', { class: 'muted t-body' }, sub) : null);
+  return h('div', { class: 'page-title' }, h('h1', { class: 't-h1' }, txt(title)), sub ? h('p', { class: 'muted t-body' }, txt(sub)) : null);
 }
 
 /** Pie / nota chica (16px, --ink-3). */
-export const footnote = (text, cls) => h('p', { class: ['footnote', cls] }, text);
+export const footnote = (text, cls) => h('p', { class: ['footnote', cls] }, txt(text));
 /** Pie obligatorio de las hojas de decisión. */
 export const disclaimer = () => footnote(DISCLAIMER, 'disclaimer');
 
 /** Lista de pares etiqueta / valor de 17px. kv([{label:'Interés extra', value:amt(85795), tone:'warn', strong:true, hint:'...'}]) */
 export function kv(rows, { cls } = {}) {
   return h('dl', { class: ['kv', cls] }, rows.filter(Boolean).map((r) => h('div', { class: ['kv-row', r.strong && 'strong', r.tone && `tone-${toneOf(r.tone)}`] },
-    h('dt', null, r.label, r.hint ? h('span', { class: 'kv-hint' }, r.hint) : null),
-    h('dd', null, r.value))));
+    h('dt', null, txt(r.label), r.hint ? h('span', { class: 'kv-hint' }, txt(r.hint)) : null),
+    h('dd', null, txt(r.value)))));
 }
 
 // ------------------------------------------------------------------ filas
@@ -135,15 +183,17 @@ export function row({ icon: ic, tone = 'brand', title, sub, value, valueSub, chi
   const kids = [
     ic ? iconTile(ic, tone) : null,
     h('span', { class: 'row-text' },
-      h('span', { class: 'row-title' }, title),
-      sub ? h('span', { class: 'row-sub' }, sub) : null),
+      h('span', { class: 'row-title' }, txt(title)),
+      sub ? h('span', { class: 'row-sub' }, txt(sub)) : null),
     (value != null || valueSub || ch) ? h('span', { class: 'row-end' },
-      value != null ? h('span', { class: ['row-value', valueClass === 'big' && 't-big', valueClass === 'date' && 't-date'] }, value) : null,
-      valueSub ? h('span', { class: 'row-valsub' }, valueSub) : null,
+      value != null ? h('span', { class: ['row-value', valueClass === 'big' && 't-big', valueClass === 'date' && 't-date'] }, txt(value)) : null,
+      valueSub ? h('span', { class: 'row-valsub' }, txt(valueSub)) : null,
       ch ? chip(ch.label, { tone: ch.tone || 'info', icon: ch.icon }) : null) : null,
     showChevron ? icon('chevron', { cls: 'row-chev' }) : null,
   ];
-  const attrs = { class: ['row', `row-${size}`, interactive && 'row-action', pending && 'row-pending', cls], 'aria-label': ariaLabel || null, dataset };
+  const hasValue = value != null;
+  const hasEnd2 = !!(valueSub || ch);
+  const attrs = { class: ['row', `row-${size}`, interactive && 'row-action', pending && 'row-pending', hasValue && 'has-value', hasValue && !hasEnd2 && !valueClass && 'row-wide', cls], 'aria-label': ariaLabel || null, dataset };
   if (href) return h('a', { ...attrs, href, onclick: onClick }, kids);
   if (onClick) return h('button', { ...attrs, type: 'button', onclick: onClick }, kids);
   return h('div', attrs, kids);
@@ -168,7 +218,7 @@ export function segmented({ options, value, onChange, ariaLabel, name, cls }) {
   const el = h('div', { class: ['seg', cls], role: 'radiogroup', 'aria-label': ariaLabel || null },
     options.map((o) => h('label', { class: 'seg-opt' },
       h('input', { type: 'radio', name: nm, value: o.value, checked: String(o.value) === String(value), class: 'seg-in', onchange: (e) => { if (e.target.checked) onChange?.(o.value); } }),
-      h('span', { class: 'seg-face' }, o.icon ? icon(o.icon, { size: 'sm' }) : null, h('span', null, o.label)))));
+      h('span', { class: 'seg-face' }, o.icon ? icon(o.icon, { size: 'sm' }) : null, h('span', null, txt(o.label))))));
   Object.defineProperty(el, 'value', { get: () => (el.querySelector('input:checked') || {}).value, set: (v) => { const i = [...el.querySelectorAll('input')].find((x) => x.value === String(v)); if (i) i.checked = true; } });
   el.setValue = (v) => { el.value = v; };
   return el;
@@ -186,9 +236,9 @@ export function optionGroup({ options, value, onChange, name, ariaLabel, cls }) 
       h('input', { type: 'radio', name: nm, value: o.value, checked: String(o.value) === String(value), class: 'opt-in', onchange: (e) => { if (e.target.checked) onChange?.(o.value); } }),
       h('span', { class: 'opt-mark', 'aria-hidden': 'true' }),
       h('span', { class: 'opt-body' },
-        h('span', { class: 'opt-title' }, o.title, o.tag ? chip(o.tag, { tone: o.tagTone || 'ok' }) : null),
-        o.sub ? h('span', { class: 'opt-sub' }, o.sub) : null),
-      o.end != null ? h('span', { class: 'opt-val' }, o.end) : null)));
+        h('span', { class: 'opt-title' }, txt(o.title), o.tag ? chip(o.tag, { tone: o.tagTone || 'ok' }) : null),
+        o.sub ? h('span', { class: 'opt-sub' }, txt(o.sub)) : null),
+      o.end != null ? h('span', { class: 'opt-val' }, txt(o.end)) : null)));
   Object.defineProperty(el, 'value', { get: () => (el.querySelector('input:checked') || {}).value, set: (v) => { const i = [...el.querySelectorAll('input')].find((x) => x.value === String(v)); if (i) i.checked = true; } });
   return el;
 }
@@ -303,8 +353,8 @@ export function notice({ tone = 'info', title, text, action, icon: ic, dashed = 
   return h('div', { class: ['notice', `notice-${t}`, dashed && 'notice-dashed', cls], role: role || null },
     h('span', { class: 'notice-ic', 'aria-hidden': 'true' }, icon(ic || NOTICE_ICON[t] || 'info')),
     h('div', { class: 'notice-body' },
-      title ? h('p', { class: 'notice-title' }, title) : null,
-      text ? h('p', { class: 'notice-text' }, text) : null,
+      title ? h('p', { class: 'notice-title' }, txt(title)) : null,
+      text ? h('p', { class: 'notice-text' }, txt(text)) : null,
       action ? btn({ label: action.label, variant: 'text', inline: true, onClick: action.onClick, href: action.href, cls: 'notice-action' }) : null));
 }
 
@@ -346,8 +396,8 @@ const ART = {
 export function empty({ title, text, action, secondary, art = 'barras', cls } = {}) {
   return h('div', { class: ['empty', cls] },
     (ART[art] || ART.barras)(),
-    h('h2', { class: 'empty-title' }, title),
-    text ? h('p', { class: 'empty-text' }, text) : null,
+    h('h2', { class: 'empty-title' }, txt(title)),
+    text ? h('p', { class: 'empty-text' }, txt(text)) : null,
     action ? btn({ label: action.label, onClick: action.onClick, href: action.href, icon: action.icon, cls: 'empty-btn' }) : null,
     secondary ? btn({ label: secondary.label, variant: 'text', onClick: secondary.onClick, href: secondary.href, cls: 'empty-btn2' }) : null);
 }
@@ -356,8 +406,8 @@ export function empty({ title, text, action, secondary, art = 'barras', cls } = 
 export function milestone({ title, text, action, secondary } = {}) {
   return h('div', { class: 'milestone' },
     h('span', { class: 'milestone-ic', 'aria-hidden': 'true' }, icon('llave', { size: 'lg' })),
-    h('h3', { class: 't-sheet' }, title),
-    text ? h('p', { class: 't-body' }, text) : null,
+    h('h3', { class: 't-sheet' }, txt(title)),
+    text ? h('p', { class: 't-body' }, txt(text)) : null,
     action ? btn({ label: action.label, onClick: action.onClick }) : null,
     secondary ? btn({ label: secondary.label, variant: 'text', onClick: secondary.onClick, icon: secondary.icon }) : null);
 }
@@ -490,13 +540,13 @@ export function hero({ label, value, valueText, status: st, statusLabel, caption
   autoFit(fitHost, { min: 2 * 16 });
   return h('section', { class: ['hero on-hero', cls] },
     h('div', { class: 'hero-top' },
-      h('span', { class: 'hero-label' }, label),
+      h('span', { class: 'hero-label' }, txt(label)),
       st ? status(st, { label: statusLabel, onHero: true }) : null),
     numWrap,
-    caption ? h('p', { class: 'hero-caption' }, caption) : null,
-    note ? h('button', { type: 'button', class: 'hero-note', onclick: note.onClick }, note.text, icon('chevron', { size: 'sm' })) : null,
+    caption ? h('p', { class: 'hero-caption' }, txt(caption)) : null,
+    note ? h('button', { type: 'button', class: 'hero-note', onclick: note.onClick }, txt(note.text), icon('chevron', { size: 'sm' })) : null,
     aviso ? h(aviso.onClick ? 'button' : 'div', { type: aviso.onClick ? 'button' : null, class: 'hero-aviso', onclick: aviso.onClick },
-      icon(aviso.icon || 'alerta'), h('span', { class: 'hero-aviso-t' }, aviso.text), aviso.onClick ? icon('chevron') : null) : null,
+      icon(aviso.icon || 'alerta'), h('span', { class: 'hero-aviso-t' }, txt(aviso.text)), aviso.onClick ? icon('chevron') : null) : null,
     strip && strip.length ? monthStrip(strip, stripOptions) : null);
 }
 
@@ -542,9 +592,9 @@ export const pref = { get: (k, d) => lsGet(`mc.pref.${k}`, d), set: (k, v) => ls
  */
 export function stat({ label, value, valueClass = 'display', sub, chips, tone, cls } = {}) {
   return h('div', { class: ['stat', tone && `stat-${toneOf(tone)}`, cls] },
-    label ? h('p', { class: 'stat-label' }, label) : null,
-    h('p', { class: ['stat-value', `t-${valueClass}`] }, value),
-    sub ? h('p', { class: 'stat-sub' }, sub) : null,
+    label ? h('p', { class: 'stat-label' }, txt(label)) : null,
+    h('p', { class: ['stat-value', `t-${valueClass}`] }, txt(value)),
+    sub ? h('p', { class: 'stat-sub' }, txt(sub)) : null,
     chips && chips.length ? h('div', { class: 'cluster stat-chips' }, chips) : null);
 }
 
@@ -555,8 +605,8 @@ export function stat({ label, value, valueClass = 'display', sub, chips, tone, c
 export function verdict({ code, title, text, rows, footer, cls } = {}) {
   const s = statusInfo(code);
   return h('div', { class: ['verdict', `verdict-${s.tone}`, cls], role: 'status', 'aria-live': 'polite' },
-    h('p', { class: 'verdict-title' }, icon(s.tone === 'ok' ? 'forma-ok' : s.tone === 'warn' ? 'alerta' : 'forma-falta'), h('span', null, title)),
-    text ? h('p', { class: 'verdict-text' }, text) : null,
+    h('p', { class: 'verdict-title' }, icon(s.tone === 'ok' ? 'forma-ok' : s.tone === 'warn' ? 'alerta' : 'forma-falta'), h('span', null, txt(title))),
+    text ? h('p', { class: 'verdict-text' }, txt(text)) : null,
     rows && rows.length ? kv(rows, { cls: 'verdict-kv' }) : null,
     footer || null);
 }
@@ -586,7 +636,7 @@ export function monthMap({ items, value, onChange, ariaLabel = 'Elegí el mes', 
 
 /** Cinta fija ámbar (modo ejemplo). ribbon({ text:'Esto es un ejemplo, no son tus números', actionLabel:'Cargar lo mío', onClick }) */
 export function ribbon({ text, actionLabel, onClick }) {
-  return h('div', { class: 'ribbon', role: 'note' }, h('span', null, text), actionLabel ? h('button', { type: 'button', onclick: onClick }, actionLabel) : null);
+  return h('div', { class: 'ribbon', role: 'note' }, h('span', null, txt(text)), actionLabel ? h('button', { type: 'button', onclick: onClick }, actionLabel) : null);
 }
 
 /**
@@ -605,10 +655,10 @@ export function stepShell({ step, total = 7, stepLabel, question, help, content,
         onSkip ? link({ label: skipLabel, onClick: onSkip }) : null)),
     h('div', { class: 'ob-main stack-4' },
       stepLabel ? h('p', { class: 'ob-step' }, `Paso ${step} de ${total}${stepLabel ? ' · ' + stepLabel : ''}`) : null,
-      h('h1', { class: 'ob-q t-q' }, question),
-      help ? h('p', { class: 'ob-help' }, help) : null,
+      h('h1', { class: 'ob-q t-q' }, txt(question)),
+      help ? h('p', { class: 'ob-help' }, txt(help)) : null,
       h('div', { class: 'ob-content stack-4' }, content),
-      reward ? h('div', { class: 'ob-reward', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'ob-reward-ic' }, icon('tilde')), h('p', { class: 'ob-reward-t' }, reward.text)) : null,
+      reward ? h('div', { class: 'ob-reward', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'ob-reward-ic' }, icon('tilde')), h('p', { class: 'ob-reward-t' }, txt(reward.text))) : null,
       extra || null),
     h('div', { class: 'ob-foot' },
       primary ? btn({ label: primary.label, onClick: primary.onClick, disabled: primary.disabled, icon: primary.icon }) : null,
@@ -625,7 +675,7 @@ export function welcome({ mark = true, title, lead, bullets, children, actions, 
     h('div', { class: 'welcome-top stack-6' },
       mark ? h('svg', { class: 'brandmark', viewBox: '0 0 64 64', 'aria-hidden': 'true', focusable: 'false' }, h('use', { href: '#i-marca' })) : null,
       title ? h('h1', { class: 'welcome-title' }, (Array.isArray(title) ? title : [title]).flatMap((t, i) => (i ? [h('br'), t] : [t]))) : null,
-      lead ? h('p', { class: 'welcome-lead' }, lead) : null,
+      lead ? h('p', { class: 'welcome-lead' }, txt(lead)) : null,
       bullets ? h('ul', { class: 'welcome-list' }, bullets.map((b) => h('li', null, icon(b.icon), h('span', null, b.text)))) : null,
       children || null),
     h('div', { class: 'welcome-foot stack-2' }, actions || null, footLink ? h('button', { type: 'button', class: 'welcome-link', onclick: footLink.onClick }, footLink.label) : null));

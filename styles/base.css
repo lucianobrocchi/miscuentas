@@ -25,7 +25,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100dvh;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 body.sheet-open { overflow: hidden; }
 
@@ -83,6 +83,7 @@ table { border-collapse: collapse; width: 100%; }
 
 /* ---------------- modo privacidad: montos y nombres ---------------- */
 .amt, .pname { font-variant-numeric: tabular-nums lining-nums; }
+.amt { white-space: nowrap; }   /* un monto nunca se parte en dos renglones (ni separa el − del $) */
 html[data-privacy="on"] .amt > .amt-v,
 html[data-privacy="on"] .pname > .pname-v { display: none; }
 html[data-privacy="on"] .amt::before { content: "\2022\2022\2022\2022" / "monto oculto"; letter-spacing: .08em; }
@@ -139,13 +140,21 @@ body[data-notabs] #shell .wrap { padding-bottom: calc(env(safe-area-inset-bottom
 /* cinta fija (ejemplo), pastilla sin internet, aviso de versión */
 #banners { display: flex; flex-direction: column; gap: var(--s2); }
 #banners:empty { display: none; }
+#banners:not(:empty) { padding-bottom: var(--gap); }
 .ribbon {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap;
+  display: flex; align-items: center; gap: var(--s3);
   background: var(--warn-bg); color: var(--warn-fg); border: 2px solid var(--warn-bar);
-  border-radius: var(--r-btn); padding: var(--s2) var(--s4); min-height: 44px; font-weight: 600; line-height: 1.375;
+  border-radius: var(--r-btn); padding: 6px 8px 6px var(--s4); min-height: 48px; font-weight: 600; line-height: 1.375;
   margin-top: var(--s2);
 }
-.ribbon button, .ribbon a { color: inherit; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; min-height: 44px; padding: 0 var(--s1); }
+.ribbon > span { flex: 1 1 0; min-width: 0; }
+.ribbon button, .ribbon a {
+  flex: none; min-height: 48px; padding: 0 var(--s4); border-radius: var(--r-icon); white-space: nowrap;
+  background: var(--warn-fg); color: var(--warn-bg); font-weight: 800; text-decoration: none;
+}
+@media (max-width: 380px) { .ribbon button, .ribbon a { padding: 0 var(--s3); } }
+/* con letra grande el texto y el botón se apilan (el texto no queda en una columna angosta) */
+html[data-fontsize] .ribbon { flex-direction: column; align-items: stretch; padding: var(--s3) var(--s3); gap: var(--s2); }
 .pill-offline {
   display: flex; align-items: center; gap: var(--s2); min-height: 36px; padding: var(--s1) var(--s4);
   border-radius: var(--r-chip); background: var(--surface-2); color: var(--ink-2);
@@ -162,7 +171,7 @@ body[data-notabs] #tabbar { display: none; }
 .tabbar-in { max-width: 640px; margin-inline: auto; display: flex; min-height: var(--tabbar-h); padding: var(--s2) var(--s1) var(--s2); }
 .tab {
   flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  padding: 0 2px; text-decoration: none; color: var(--ink-3); font-size: var(--t-small); line-height: 1.25; font-weight: 600;
+  padding: 0 4px; text-decoration: none; color: var(--ink-3); font-size: var(--t-small); line-height: 1.25; font-weight: 600;
   text-align: center; border-radius: var(--r-icon); position: relative;
 }
 .tab .cap { display: grid; place-items: center; width: 56px; height: 30px; border-radius: var(--r-chip); transition: background 160ms var(--ease); }
@@ -178,10 +187,10 @@ body[data-notabs] #tabbar { display: none; }
   background: var(--warn-bar); border: 2px solid var(--surface);
 }
 .tab .lbl { white-space: nowrap; }
-@media (max-width: 380px) { .tab { padding: 0; } }
+@media (max-width: 380px) { .tab { padding: 0 3px; } }
 /* con letra grande el rótulo puede partirse en dos renglones sin cortarse */
 html[data-fontsize="grande"] .tab .lbl,
-html[data-fontsize="mas-grande"] .tab .lbl { white-space: normal; }
+html[data-fontsize="masgrande"] .tab .lbl { white-space: normal; }
 
 /* ---------------- riel izquierdo (escritorio) ---------------- */
 #rail { display: none; }

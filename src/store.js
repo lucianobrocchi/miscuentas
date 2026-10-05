@@ -3,6 +3,7 @@
 // estado lleva v:2; load() y migrate() completan lo que falte, así que los datos viejos siguen funcionando.
 
 import { toDate, toISO, monthKeyOf, addMonthsDate, monthName, plural, daysBetween } from './format.js';
+import { addMonths } from './engine.js';
 
 export const STORAGE_KEY = 'miscuentas.v1';
 export const VERSION = 2;
@@ -572,6 +573,61 @@ export function aplicarCambios(draft, cambios = {}) {
     if (it) it.overrides = { ...(it.overrides || {}), [o.mes]: Number(o.valor) };
   }
   return draft;
+}
+
+/**
+ * "Me aumentaron el sueldo desde {mes}": el ingreso actual termina el mes anterior y se crea uno nuevo desde `desde` ('YYYY-MM')
+ * con el monto nuevo (en movilidad, el monto de un mes completo). Si `desde` es anterior al comienzo del ingreso, solo cambia su monto.
+ * Los montos puestos a mano de un mes quedan en el ingreso que cubre ese mes. Devuelve el id del ingreso vigente desde `desde`, o null.
+ */
+export function aplicarAumento(draft, incomeId, { desde, monto }) {
+  const it = draft.incomes.find((x) => x.id === incomeId);
+  const nuevo = Math.round(nn(monto));
+  if (!it || !isKey(desde) || nuevo <= 0) return null;
+  const campo = it.kind === 'movilidad' ? 'fullMonthAmount' : 'amount';
+  if (it.from && desde <= it.from) {
+    it[campo] = nuevo;
+    return it.id;
+  }
+  const copia = JSON.parse(JSON.stringify(it));
+  copia.id = uid();
+  copia[campo] = nuevo;
+  copia.from = desde;
+  delete copia.estimated;
+  const antes = {};
+  const despues = {};
+  for (const [k, v] of Object.entries(it.overrides || {})) (k < desde ? antes : despues)[k] = v;
+  if (Object.keys(antes).length) it.overrides = antes;
+  else delete it.overrides;
+  if (Object.keys(despues).length) copia.overrides = despues;
+  else delete copia.overrides;
+  if (it.days) {
+    const d1 = {};
+    const d2 = {};
+    for (const [k, v] of Object.entries(it.days)) (k < desde ? d1 : d2)[k] = v;
+    if (Object.keys(d1).length) it.days = d1;
+    else delete it.days;
+    if (Object.keys(d2).length) copia.days = d2;
+    else delete copia.days;
+  }
+  const anterior = addMonths(desde, -1);
+  it.to = it.to && it.to < anterior ? it.to : anterior;
+  const i = draft.incomes.indexOf(it);
+  draft.incomes.splice(i + 1, 0, copia);
+  return copia.id;
+}
+
+/**
+ * Guarda lo que el plan decía que iba a sobrar este mes (una vez por mes), para el cierre de mes ("Esperábamos que te sobraran $X").
+ * Conviene llamarla al abrir Hoy si todavía no está guardada: `if (state.seen.proyecciones[mes] === undefined)`. Devuelve true si guardó.
+ */
+export function guardarProyeccion(draft, valor, today = new Date()) {
+  const mes = currentMonth(today);
+  draft.seen = draft.seen || { hitos: [], tips: [], cierres: [], proyecciones: {} };
+  draft.seen.proyecciones = draft.seen.proyecciones || {};
+  if (draft.seen.proyecciones[mes] !== undefined || !Number.isFinite(Number(valor))) return false;
+  draft.seen.proyecciones[mes] = Math.round(Number(valor));
+  return true;
 }
 
 /** Cambia el monto mensual de "gastos de la casa" (cierre de mes: "Ajustar mis gastos de la casa a $X"). */

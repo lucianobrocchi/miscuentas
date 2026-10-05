@@ -54,7 +54,7 @@
   --font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   /* escala en rem (1rem = 16px; escala con el tamaño de letra elegido) */
   --t-hero: clamp(2.5rem, 13vw, 3.5rem);   /* 40 a 56px */
-  --t-display: 2.75rem;                    /* 44/48 · cifras de tarjeta */
+  --t-display: clamp(2rem, 11vw, 2.75rem);   /* 32 a 44px · cifras de tarjeta (baja en celulares angostos o con letra grande) */
   --t-q: 2rem;                             /* 32/38 · pregunta de onboarding */
   --t-big: 2rem;                           /* 32/36 */
   --t-date: 1.625rem;                      /* 26/32 */
@@ -109,4 +109,4 @@
 /* ---- tamaño de letra (Más > Apariencia). Todo está en rem ---- */
 html { font-size: 100%; }
 html[data-fontsize="grande"] { font-size: 112.5%; }
-html[data-fontsize="mas-grande"] { font-size: 125%; }
+html[data-fontsize="masgrande"] { font-size: 125%; }

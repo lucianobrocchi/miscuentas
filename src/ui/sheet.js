@@ -4,9 +4,10 @@
 // Nada de confirm()/alert(): para confirmar usá sheet.confirm().
 
 import { h, icon, reducedMotion, announce } from './dom.js';
-import { btn } from './components.js';
+import { btn, txt } from './components.js';
 
 const stack = [];            // hojas abiertas, la última es la de arriba
+const routeEntries = new Map(); // hojas "de ruta" (viven en la URL, ej. #/meses/2026-12): clave -> entrada
 let seq = 0;
 let pendingBacks = 0;        // history.back()/go() que nosotros mismos pedimos y todavía no terminaron
 let waiters = [];
@@ -66,13 +67,14 @@ addEventListener('popstate', () => {
  * Devuelve { el, body, close(result), setTitle(t), setFooter(node), closed: Promise<result> }.
  */
 export function open(opts) {
-  const entry = { id: ++seq, opts, route: !!opts.route, closing: false, trigger: document.activeElement };
+  const entry = { id: ++seq, opts, route: !!opts.route || !!opts.routeKey, routeKey: opts.routeKey || null, fresh: true, closing: false, trigger: document.activeElement };
+  if (entry.routeKey) routeEntries.set(entry.routeKey, entry);
   const titleId = `sheet-title-${entry.id}`;
   let resolveClosed;
   const closed = new Promise((r) => { resolveClosed = r; });
   entry.resolve = resolveClosed;
 
-  const titleEl = h('h2', { class: 't-sheet sheet-title', id: titleId, tabindex: '-1' }, opts.title || '');
+  const titleEl = h('h2', { class: 't-sheet sheet-title', id: titleId, tabindex: '-1' }, txt(opts.title || ''));
   const body = h('div', { class: 'sheet-body' });
   const foot = h('footer', { class: 'sheet-foot', hidden: true });
   const closeBtn = h('button', { class: 'sheet-close', type: 'button', onclick: () => dismiss(entry) },
@@ -88,7 +90,7 @@ export function open(opts) {
     body,
     closed,
     close: (result) => { dismissWith(entry, result); },
-    setTitle: (t) => { titleEl.textContent = t; },
+    setTitle: (t) => { titleEl.replaceChildren(...[].concat(txt(t)).map((n) => (n instanceof Node ? n : document.createTextNode(String(n))))); },
     setFooter: (f) => setFoot(entry, f, handle),
   };
   entry.handle = handle;
@@ -146,6 +148,7 @@ function dismissWith(entry, result) {
 function finish(entry, result, { fromPop = false, silent = false } = {}) {
   if (entry.closing) return;
   entry.closing = true;
+  if (entry.routeKey && routeEntries.get(entry.routeKey) === entry) routeEntries.delete(entry.routeKey);
   const i = stack.indexOf(entry);
   if (i >= 0) stack.splice(i, 1);
   if (!entry.route && !fromPop && entry.pushed) requestBack(1);
@@ -221,7 +224,7 @@ export function confirm({ title, message, confirmLabel = 'Confirmar', cancelLabe
       render(body) {
         body.appendChild(h('div', { class: 'stack-3' },
           ic ? h('div', { class: ['icon-tile', `tone-bg-${tone === 'bad' ? 'bad' : 'brand'}`] }, icon(ic)) : null,
-          message instanceof Node ? message : h('p', { class: 't-body' }, message || '')));
+          message instanceof Node ? message : h('p', { class: 't-body' }, txt(message || ''))));
       },
       footer: (close) => [
         btn({ label: confirmLabel, variant: tone === 'bad' ? 'danger' : 'primary', onClick: () => answer(true, close) }),
@@ -236,7 +239,7 @@ export function confirm({ title, message, confirmLabel = 'Confirmar', cancelLabe
 export function info({ title, content, actionLabel = 'Entendido' }) {
   return open({
     title,
-    render: (body) => { body.appendChild(content instanceof Node ? content : h('p', { class: 't-body' }, content)); },
+    render: (body) => { body.appendChild(content instanceof Node ? content : h('p', { class: 't-body' }, txt(content))); },
     footer: (close) => btn({ label: actionLabel, variant: 'secondary', onClick: () => close() }),
   });
 }
@@ -274,9 +277,38 @@ export function closeAll() {
   return Promise.resolve();
 }
 
-/** Para pantallas: cierra una hoja de ruta sin disparar onDismiss (ej. al cambiar el hash con Atrás). */
+/**
+ * Hoja de ruta: una hoja que "vive" en la URL (ej. el detalle de un mes en #/meses/2026-12).
+ * Se declara desde mount() de la pantalla y es IDEMPOTENTE: si app.js vuelve a montar la pantalla (cambió el estado),
+ * openRoute con la misma clave NO abre otra hoja: vuelve a llenar la que está abierta (conserva el scroll).
+ * Si la ruta cambia y la nueva pantalla no la declara, app.js la cierra sola. No empuja historial.
+ * opts: los de open() más onDismiss() (qué hacer cuando la persona la cierra: ej. () => ctx.back('#/meses')).
+ */
+export function openRoute(key, opts) {
+  const ex = routeEntries.get(key);
+  if (ex && !ex.closing) {
+    ex.fresh = true;
+    ex.opts = { ...ex.opts, ...opts };
+    ex.handle.setTitle(opts.title || '');
+    const keep = ex.body.scrollTop;
+    ex.body.replaceChildren();
+    opts.render?.(ex.body, ex.handle.close);
+    ex.body.scrollTop = keep;
+    if (opts.footer) setFoot(ex, opts.footer, ex.handle);
+    return ex.handle;
+  }
+  return open({ ...opts, routeKey: key, route: true });
+}
+
+/** Lo usa app.js alrededor de cada mount(): las hojas de ruta no re-declaradas durante el mount se cierran al terminar. */
+export function beginRender() { routeEntries.forEach((e) => { e.fresh = false; }); }
+export function endRender() {
+  [...routeEntries.values()].filter((e) => !e.fresh && !e.closing).forEach((e) => finish(e, undefined, { silent: false }));
+}
+
+/** Cierra todas las hojas de ruta sin disparar onDismiss. */
 export function closeRouteSheets() {
-  [...stack].filter((s) => s.route).forEach((s) => finish(s, undefined, { silent: false }));
+  [...routeEntries.values()].forEach((s) => finish(s, undefined, { silent: false }));
 }
 
 export { announce };

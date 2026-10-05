@@ -28,7 +28,7 @@
     var st = raw ? (JSON.parse(raw).settings || {}) : {};
     var d = document.documentElement;
     if (st.theme === 'light' || st.theme === 'dark') d.setAttribute('data-theme', st.theme);
-    if (st.fontSize === 'grande' || st.fontSize === 'mas-grande') d.setAttribute('data-fontsize', st.fontSize);
+    if (st.fontSize === 'grande' || st.fontSize === 'masgrande') d.setAttribute('data-fontsize', st.fontSize);
     if (st.privacy) d.setAttribute('data-privacy', 'on');
   } catch (e) { /* sin almacenamiento: se ve con los valores por defecto */ }
 })();

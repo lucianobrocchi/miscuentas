@@ -22,6 +22,19 @@ export function pagosDelMes(item, key) {
 }
 
 /**
+ * Pagos de una deuda que ya bajaron el saldo cargado y que cuentan para el resumen vigente: los posteriores al cierre
+ * del último resumen (los anteriores ya están descontados en su total). Sin resumen cargado cuentan todos.
+ * { total, pagos, ultimo }. Con { key } solo los de ese mes ('YYYY-MM').
+ */
+export function pagosDelResumen(debt, { key } = {}) {
+  const cierre = debt?.statement?.closedOn || null;
+  const pagos = (debt?.payments || [])
+    .filter((p) => typeof p.date === 'string' && nn(p.amount) > 0 && (!cierre || p.date > cierre) && (!key || p.date.slice(0, 7) === key))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return { total: pagos.reduce((a, p) => a + nn(p.amount), 0), pagos, ultimo: pagos[pagos.length - 1] || null };
+}
+
+/**
  * En qué punto está el último resumen cargado de una tarjeta, comparado con hoy.
  * fase: 'sinResumen' (no hay), 'vigente' (todavía no venció), 'vencido' (ya venció pero no cerró uno nuevo),
  * 'viejo' (ya cerró uno más nuevo: hay que cargarlo). Las fechas son las reales del resumen, no días fijos.
@@ -209,8 +222,17 @@ export function toEngine(state, today = new Date(), opts = {}) {
   const net = s.salaryNetOfPayroll === true ? true : s.salaryNetOfPayroll === false ? false : null;
   const incomeNetStart = incomes.filter((i) => isActive(i, start)).reduce((a, i) => a + amountFor(i, start), 0);
   if (net === true && planillaActual > 0) {
-    const idx = incomes.findIndex((i) => i.kind === 'sueldo' && isActive(i, start));
-    if (idx >= 0) incomes[idx] = { ...incomes[idx], amount: nn(incomes[idx].amount) + planillaActual, payrollAdd: planillaActual };
+    // El sueldo que cargó ya viene sin los descuentos: se le suman (una sola vez por mes). Si hay un aumento "desde" un mes,
+    // la cadena de sueldos (el vigente hoy y los que empiezan después de que termina el anterior) lleva la suma.
+    const sueldosIdx = incomes.map((i, k) => [i, k]).filter(([i]) => i.kind === 'sueldo');
+    let fin = null; // último mes cubierto por la cadena ('' = sin fin)
+    const ordenados = sueldosIdx.filter(([i]) => isActive(i, start)).concat(sueldosIdx.filter(([i]) => i.from && i.from > start).sort((a, b) => (a[0].from < b[0].from ? -1 : 1)));
+    for (const [i, k] of ordenados) {
+      const entra = fin === null ? isActive(i, start) : fin !== '' && i.from && i.from > fin;
+      if (!entra) continue;
+      incomes[k] = { ...i, amount: nn(i.amount) + planillaActual, payrollAdd: planillaActual };
+      fin = i.to || '';
+    }
   }
   if (net === null && hayPlanilla) {
     addMotivo('planilla', 'No sabemos si los descuentos del recibo ya están restados de tu sueldo.', 'planilla');
@@ -227,7 +249,7 @@ export function toEngine(state, today = new Date(), opts = {}) {
 
   // ---- deudas: lo pagado este mes ya está descontado del saldo, así que se repone y se fija como pago elegido ----
   const debts = (state.debts || []).map((d) => {
-    const pagado = pagosDelMes(d, start).total;
+    const pagado = pagosDelResumen(d, { key: start }).total; // lo pagado este mes que ya bajó el saldo cargado
     const planned = { ...(d.planned || {}) };
     if (pagado > 0) planned[start] = Math.max(nn(planned[start]), pagado);
     return { ...d, balance: nn(d.balance) + pagado, rate: nn(d.rate), minPayment: nn(d.minPayment), planned };
@@ -258,6 +280,9 @@ export function toEngine(state, today = new Date(), opts = {}) {
     .filter(([, x]) => x.estimated === true)
     .map(([lista, x]) => ({ lista, id: x.id, nombre: x.name }));
 
+  // Copia profunda: lo que sale no comparte objetos con el estado (si alguien modifica el estado después, un resultado
+  // memoizado no se contamina, y si modifica la salida, el estado no cambia).
+  const dup = (x) => JSON.parse(JSON.stringify(x));
   return {
     settings: {
       start,
@@ -267,11 +292,11 @@ export function toEngine(state, today = new Date(), opts = {}) {
       cash: cashMotor,
       deficitRate: Math.max(0, nn(s.deficitRate)),
     },
-    incomes,
-    expenses,
-    installments,
-    debts,
-    receivables,
+    incomes: dup(incomes),
+    expenses: dup(expenses),
+    installments: dup(installments),
+    debts: dup(debts),
+    receivables: dup(receivables),
     flags: {
       provisorio: motivos.length > 0,
       motivos: motivos.map((m) => m.texto),

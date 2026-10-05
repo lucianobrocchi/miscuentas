@@ -5,10 +5,10 @@
 
 import { simulate, amountFor, daysFor, installmentEnd, installmentActive, isActive, addMonths, monthDiff } from './engine.js';
 import { FERIADOS, workdays } from './calendar.js';
-import { toEngine, estadoResumen, pagosDelMes, normalizarGasto, gastoAExtras, cuotasQueFaltan } from './adapter.js';
-import { money, compact, monthName, longDate, plural, lista, pct, toDate, toISO, monthKeyOf, addMonthsDate, addDays, daysBetween, lastDayOfMonth, haceTiempo } from './format.js';
+import { toEngine, estadoResumen, pagosDelMes, pagosDelResumen, normalizarGasto, gastoAExtras, cuotasQueFaltan } from './adapter.js';
+import { money, compact, monthName, longDate, plural, lista, pct, toDate, toISO, monthKeyOf, addMonthsDate, addDays, daysBetween, lastDayOfMonth, haceTiempo, parseMoney, parseRate, revisarMonto } from './format.js';
 
-export { estadoResumen, pagosDelMes, normalizarGasto, gastoAExtras, cuotasQueFaltan, toEngine };
+export { estadoResumen, pagosDelMes, pagosDelResumen, normalizarGasto, gastoAExtras, cuotasQueFaltan, toEngine };
 
 // ---------- textos fijos ----------
 export const PIE_DECISION = 'Es una estimación con los datos que cargaste. No es asesoramiento financiero.';
@@ -64,9 +64,26 @@ const salidaTexto = (paidOn, start) => (!paidOn ? 'No se termina' : monthDiff(st
 const nombreCorto = (d) => String(d?.name || 'tarjeta').replace(/^tarjeta\s+/i, '');
 
 // ---------- run (memoizado) ----------
+// Dos memos: (1) el estado del motor por objeto de estado (WeakMap, se revalida con el contenido) y (2) la simulación por
+// "hash" del contenido (estado + día + gasto hipotético + estrategia), máx. 50 entradas. Así 13 corridas de ¿Me alcanza? no
+// repiten el armado del estado del motor y una pantalla que llama a varias funciones corre el motor una sola vez.
 const cache = new Map();
 const CACHE_MAX = 50;
 const estadosCache = new WeakMap();
+const engCache = new WeakMap();
+
+function firmaDe(state, t) {
+  return `${toISO(t)}|${JSON.stringify(state)}`;
+}
+
+/** Estado del motor (toEngine) memoizado por objeto de estado; se recalcula si cambió su contenido o el día. */
+function engDe(state, t, firma = firmaDe(state, t)) {
+  const hit = engCache.get(state);
+  if (hit && hit.firma === firma) return hit.eng;
+  const eng = toEngine(state, t);
+  engCache.set(state, { firma, eng });
+  return eng;
+}
 
 /**
  * Corre el motor sobre el estado de la app: simulate(toEngine(state, today), { extraExpenses: extra, strategy }).
@@ -76,14 +93,16 @@ const estadosCache = new WeakMap();
  * @param {{extra?: object[], strategy?: 'avalanche'|'snowball'|'none', today?: Date}} [opts]
  */
 export function run(state, { extra = [], strategy, today = new Date() } = {}) {
-  const eng = toEngine(state, dia(today));
-  const key = JSON.stringify([eng, extra, strategy ?? null]);
+  const t = dia(today);
+  const firma = firmaDe(state, t);
+  const key = `${firma}|${JSON.stringify(extra)}|${strategy ?? ''}`;
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);
     cache.set(key, hit);
     return hit;
   }
+  const eng = engDe(state, t, firma);
   const { flags, pending, omitidos, ...core } = eng;
   void flags;
   void pending;
@@ -280,6 +299,18 @@ export function hero(state, today = new Date()) {
 }
 
 /**
+ * "Plata de hoy": lo que hay en la cuenta (settings.cash) y si ya cobró este mes (settings.cobroEsteMes).
+ * Si hay plata cargada y no dijo si ya cobró, trae `pregunta` ('¿Ya cobraste este mes?'): el motor no suma dos veces el sueldo.
+ * @returns {{hay:boolean, rotulo:string, monto:number, cobroEsteMes:boolean|null, pregunta:string|null}}
+ */
+export function plataDeHoy(state) {
+  const monto = Math.max(0, nn(state.settings?.cash));
+  const c = state.settings?.cobroEsteMes;
+  const cobro = c === true ? true : c === false ? false : null;
+  return { hay: monto > 0, rotulo: 'Plata de hoy', monto, cobroEsteMes: cobro, pregunta: monto > 0 && cobro === null ? '¿Ya cobraste este mes?' : null };
+}
+
+/**
  * "Referencia" de cuánto gastar por día en gustos hasta fin de mes. Solo cuentan los gastos anotados como 'gustos'.
  * estado: 'sinGustos' | 'agotado' | 'ok'. Es una referencia, no un saldo.
  * @returns {{estado:string, referencia:true, gustos:number, gastado:number, restante:number, dias:number, porDia:number, hastaFecha:string, texto:string, calculo:string}}
@@ -382,7 +413,7 @@ export function vencimientos(state, today = new Date()) {
   for (const debt of state.debts.filter((d) => d.kind === 'card' || d.statement)) {
     if (nn(debt.balance) <= 0 && !debt.statement && !pagosDelMes(debt, start).total) continue;
     const e = estadoResumen(debt, t);
-    const pag = pagosDelMes(debt, start);
+    const pag = debt.statement ? pagosDelResumen(debt) : pagosDelMes(debt, start); // lo pagado desde el cierre del resumen vigente
     const pagado = pag.total > 0 ? { total: pag.total, fecha: pag.ultimo?.date || null, texto: `Pagaste ${money(pag.total)} de la ${nombreCorto(debt)}${pag.ultimo ? ' el ' + fecha(pag.ultimo.date) : ''}` } : null;
     const row = { id: `tarjeta:${debt.id}`, tipo: 'tarjeta', debtId: debt.id, titulo: debt.name, fecha: null, fechaTexto: null, dias: null, detalle: '', monto: null, montoRotulo: null, estado: 'pendiente', chip: null, boton: null, ruta: '#/deudas/tarjeta', pagado, fechasResumen: null };
     if (!e.hayResumen) {
@@ -433,7 +464,6 @@ export function vencimientos(state, today = new Date()) {
  */
 export function ahoraToca(state, today = new Date()) {
   const t = dia(today);
-  const key = monthKeyOf(t);
   for (const d of state.debts.filter((x) => x.kind === 'card')) {
     const e = estadoResumen(d, t);
     if (!e.hayResumen) {
@@ -447,7 +477,7 @@ export function ahoraToca(state, today = new Date()) {
     }
     if (e.fase === 'vigente') {
       const min = nn(d.statement.min) || nn(d.minPayment);
-      const pagado = pagosDelMes(d, key).total;
+      const pagado = pagosDelResumen(d).total;
       if (min > 0 && pagado < min) {
         const dias = e.diasParaVencer;
         const texto = dias === 0 ? `Hoy vence la ${corto}: ¿ya pagaste ${money(min)}?` : dias === 1 ? `Mañana vence la ${corto}: ¿ya pagaste ${money(min)}?` : `La ${corto} vence el ${fecha(e.dueOn)}: pagá al menos ${money(min)}.`;
@@ -473,20 +503,23 @@ function conGustos(state, monto) {
 /**
  * Cuándo salís de la tarjeta según cuánto gastes por mes en gustos (4 corridas del motor).
  * @param {{montos?: number[]}} [opts] por defecto 50.000, 100.000, 150.000 y 200.000 (más el actual)
- * @returns {{hayGustos:boolean, actual:number, escenarios:{monto:number, esActual:boolean, salida:string|null, salidaTexto:string, interesTotal:number, ahorroVsActual:number}[], notaPie:string, rango:{min:number,max:number}|null}}
+ * `salida` es cuándo termina la tarjeta (null si no hay deuda en la tarjeta o no se termina); `ahorroVsActual` es negativo si cuesta más que lo actual.
+ * @returns {{hayGustos:boolean, hayTarjeta:boolean, actual:number, gustosId?:string, escenarios:{monto:number, esActual:boolean, salida:string|null, salidaTexto:string, interesTotal:number, ahorroVsActual:number}[], notaPie:string, rango:{min:number,max:number}|null}}
  */
 export function gustosEscenarios(state, today = new Date(), { montos = [50000, 100000, 150000, 200000] } = {}) {
   const g = state.expenses.find((e) => e.kind === 'gustos');
-  if (!g) return { hayGustos: false, actual: 0, escenarios: [], notaPie: '', rango: null };
+  if (!g) return { hayGustos: false, hayTarjeta: false, actual: 0, escenarios: [], notaPie: '', rango: null };
   const actual = nn(g.amount);
   const lista_ = [...new Set([...montos, actual])].sort((a, b) => a - b);
   const start = monthKeyOf(dia(today));
   const base = run(state, { today });
+  const card = tarjetaDe(base.eng);
+  const hayTarjeta = !!card && card.balance > EPS;
   const esc = lista_.map((monto) => {
     const sim = monto === actual ? base : run(conGustos(state, monto), { today });
-    const d = sim.debts.find((x) => x.id === (tarjetaDe(sim.eng)?.id));
-    const salida = d ? d.paidOn : sim.debtFreeMonth;
-    return { monto, esActual: monto === actual, salida, salidaTexto: salida ? salidaTexto(salida, start) : 'No se termina', interesTotal: sim.totalInterest, ahorroVsActual: base.totalInterest - sim.totalInterest };
+    const d = hayTarjeta ? sim.debts.find((x) => x.id === card.id) : null;
+    const salida = d ? d.paidOn : null;
+    return { monto, esActual: monto === actual, salida, salidaTexto: !hayTarjeta ? 'Sin deuda en la tarjeta' : salida ? salidaTexto(salida, start) : 'No se termina', interesTotal: sim.totalInterest, ahorroVsActual: base.totalInterest - sim.totalInterest };
   });
   const dif = [];
   const meses = [];
@@ -503,7 +536,7 @@ export function gustosEscenarios(state, today = new Date(), { montos = [50000, 1
     const cuando = prom >= 0.75 ? `salís de la tarjeta alrededor de ${plural(Math.round(prom), 'mes', 'meses')} antes` : 'la fecha de salida casi no cambia';
     notaPie = `Cada ${money(paso)} por mes que gastes menos en gustos, ${cuando} y ahorrás entre ${money(rango.min)} y ${money(rango.max)} de interés. Es tu decisión.`;
   }
-  return { hayGustos: true, actual, gustosId: g.id, escenarios: esc, notaPie, rango };
+  return { hayGustos: true, hayTarjeta, actual, gustosId: g.id, escenarios: esc, notaPie, rango };
 }
 
 function feriadosDelMes(key) {
@@ -641,7 +674,7 @@ export function opcionesMesDificil(state, key, today = new Date()) {
       faltanteDespues: despues,
       salida: tarjetaSalida(alt),
       costoInteres: Math.round(alt.totalInterest - sim.totalInterest),
-      texto: despues > 0 ? `Con $0 de gustos, la falta baja a ${money(despues)}.` : `Con $0 de gustos, ${nombre} queda cubierto.`,
+      texto: `${despues > 0 ? `Con $0 de gustos, la falta baja a ${money(despues)}.` : `Con $0 de gustos, ${nombre} queda cubierto.`}${sim.totalInterest - alt.totalInterest >= 1000 ? ` Además ahorrás ${money(sim.totalInterest - alt.totalInterest)} de interés en total.` : ''}`,
       cambios: { overrides: [{ lista: 'expenses', id: g.id, mes: key, valor: 0 }] },
     };
   }
@@ -692,7 +725,15 @@ function evaluar(state, gasto, t) {
   let codigo = 'verde';
   if (primerFalta || nuncaTermina) codigo = 'terracota';
   else if ((delay !== null && delay > 0) || (costoTotal > 0 && extraInterest > costoTotal * 0.01) || degrada) codigo = 'ambar';
-  return { g, extra, base, alt, be, ae, start, codigo, costoTotal, extraInterest, primerFalta, peor, degrada, afectados, salidaAntes, salidaDespues, delay, nuncaTermina, hayCard };
+  // sin costo de interés: no deja ningún mes con falta, no atrasa la tarjeta y el interés extra es menor al 1% del gasto
+  const sinInteres = codigo !== 'terracota' && !(delay !== null && delay > 0) && extraInterest <= Math.max(0.5, costoTotal * 0.01);
+  return { g, extra, base, alt, be, ae, start, codigo, costoTotal, extraInterest, primerFalta, peor, degrada, afectados, salidaAntes, salidaDespues, delay, nuncaTermina, hayCard, sinInteres };
+}
+
+function descSinMes(g) {
+  if (g.modo === 'cuotas') return `${g.nombre} en ${g.cuotas} cuotas de ${money(g.montoCuota)}`;
+  if (g.modo === 'mensual') return `${g.nombre} de ${money(g.montoCuota)} por mes`;
+  return `${g.nombre} de ${money(g.total)}`;
 }
 
 function descGasto(g) {
@@ -707,6 +748,7 @@ function descGasto(g) {
  *  ('una': monto = precio total; 'cuotas': monto = precio total o montoCuota = cada cuota; 'mensual': monto = por mes)
  * codigo: 'terracota' (un mes queda con falta y empeora, o la tarjeta deja de terminarse) | 'ambar' (se atrasa la salida, el
  * interés extra supera el 1% del costo o algún mes pasa a más ajustado) | 'verde'.
+ * Si todavía no escribió cuánto cuesta, `vacio: true` (codigo 'verde', texto 'Poné cuánto cuesta y te digo si te alcanza.'): mostrá eso y no un veredicto.
  * Trae: titulo, texto, filas[{k,v}], mesPeor, primerMesFalta, extraInterest, teSale, salidaAntes/Despues(+Texto), delayMonths,
  * mesesAfectados, antesDespues[4], siLoNecesitas {key, texto} (si no es verde), tope (topeSinCosto del mes elegido, si no es verde), pie.
  * @param {{conTope?: boolean}} [opts]
@@ -730,7 +772,14 @@ export function veredicto(state, gasto, today = new Date(), { conTope = true } =
   let texto;
   if (codigo === 'terracota') {
     titulo = 'No conviene ahora';
-    texto = nuncaTermina && !primerFalta ? `No conviene ahora. Con ${desc}, la tarjeta deja de terminarse.` : `No conviene ahora. Con ${desc}, en ${primerFalta.mesNombre} te faltarían ${money(primerFalta.faltante)}.`;
+    if (nuncaTermina && !primerFalta) texto = `No conviene ahora. Con ${desc}, la tarjeta deja de terminarse.`;
+    else {
+      const idxF = monthDiff(start, primerFalta.key);
+      const yaVenia = be[idxF]?.code === 'falta';
+      const mismoMes = primerFalta.key === g.desde;
+      if (yaVenia) texto = `No conviene ahora. ${cap(primerFalta.mesNombre)} ya venía con un faltante de ${money(be[idxF].faltante)} y con ${descSinMes(g)} serían ${money(primerFalta.faltante)}.`;
+      else texto = `No conviene ahora. Con ${desc}, ${mismoMes ? '' : `en ${primerFalta.mesNombre} `}te faltarían ${money(primerFalta.faltante)}.`;
+    }
   } else if (codigo === 'ambar') {
     titulo = 'Se puede, pero tiene costo';
     if (extraInterest > 1) {
@@ -751,18 +800,36 @@ export function veredicto(state, gasto, today = new Date(), { conTope = true } =
   let siLoNecesitas = null;
   let tope = null;
   if (codigo !== 'verde') {
+    // el mejor momento de los próximos 12 meses: el primero que no suma interés; si no hay, el de menor interés sin falta de plata
     let mejor = null;
-    for (let k = 0; k <= 3; k++) {
-      const key = addMonths(g.desde, k);
-      if (monthDiff(start, key) > 11) break;
-      const e2 = k === 0 ? ev : evaluar(state, { ...gasto, desde: key }, t);
-      if (e2.codigo !== 'terracota' && (!mejor || e2.extraInterest < mejor.interes - 0.5)) mejor = { key, interes: e2.extraInterest };
+    for (let k = Math.max(0, monthDiff(start, g.desde)); k < 12; k++) {
+      const key = addMonths(start, k);
+      const e2 = key === g.desde ? ev : evaluar(state, { ...gasto, desde: key }, t);
+      if (e2.codigo === 'terracota') continue;
+      if (e2.sinInteres) {
+        mejor = { key, interes: 0, sinInteres: true, codigo: e2.codigo };
+        break;
+      }
+      if (!mejor || e2.extraInterest < mejor.interes - 0.5) mejor = { key, interes: e2.extraInterest, sinInteres: false, codigo: e2.codigo };
     }
-    if (mejor) siLoNecesitas = { key: mejor.key, texto: `Si igual lo necesitás, lo mejor es ${mes(mejor.key)}.` };
-    else siLoNecesitas = { key: null, texto: 'Si igual lo necesitás, probá con un monto menor.' };
+    if (!mejor) siLoNecesitas = { key: null, sinCosto: false, texto: 'Si igual lo necesitás, probá con un monto menor.' };
+    else if (mejor.key === g.desde) siLoNecesitas = { key: mejor.key, sinCosto: false, texto: `Si igual lo necesitás, ${mes(mejor.key)} es el mejor momento que encuentro.` };
+    else {
+      const cola = mejor.sinInteres ? (mejor.codigo === 'verde' ? ': ahí no te cuesta nada' : ': no te suma interés, aunque el mes queda ajustado') : '';
+      siLoNecesitas = { key: mejor.key, sinCosto: mejor.sinInteres, texto: `Si igual lo necesitás, lo mejor es ${mes(mejor.key)}${cola}.` };
+    }
     if (conTope) tope = topeSinCosto(state, g.desde, { modo: g.modo, cuotas: g.cuotas, today: t });
   }
+  const vacio = !(costoTotal > 0); // todavía no escribió cuánto cuesta: no hay nada que decidir
+  if (vacio) {
+    titulo = 'Poné cuánto cuesta';
+    texto = 'Poné cuánto cuesta y te digo si te alcanza.';
+    filas.length = 0;
+    siLoNecesitas = null;
+    tope = null;
+  }
   return {
+    vacio,
     codigo,
     color: codigo,
     titulo,
@@ -792,7 +859,8 @@ export function veredicto(state, gasto, today = new Date(), { conTope = true } =
 /**
  * Mapa de los próximos 12 meses: el mismo veredicto desplazando `desde` (12 corridas).
  * Cada mes: { key, mes, codigo, glifo:'circulo'|'cuadrado'|'triangulo', etiqueta:'Sin costo'|'Con costo'|'No conviene', costoExtra, faltante }.
- * mejorMomento = primer mes verde (o ámbar con interés menor al 1% del monto). leyenda = LEYENDA_MAPA (fija, en palabras).
+ * mejorMomento = el primer mes que no suma interés (verde, o ámbar con interés extra menor al 1% del gasto y sin atrasar la tarjeta);
+ * cada mes trae `sinInteres`. leyenda = LEYENDA_MAPA (fija, en palabras).
  */
 export function mapaMeses(state, gasto, today = new Date()) {
   const t = dia(today);
@@ -802,14 +870,15 @@ export function mapaMeses(state, gasto, today = new Date()) {
     const key = addMonths(start, i);
     const e = evaluar(state, { ...gasto, desde: key }, t);
     const L = LEYENDA_MAPA.find((x) => x.codigo === e.codigo);
-    meses.push({ key, mes: monthName(key, { short: true }), codigo: e.codigo, glifo: L.glifo, etiqueta: L.texto, costoExtra: Math.max(0, e.extraInterest), faltante: e.primerFalta ? e.primerFalta.faltante : 0 });
+    meses.push({ key, mes: monthName(key, { short: true }), codigo: e.codigo, glifo: L.glifo, etiqueta: L.texto, costoExtra: Math.max(0, e.extraInterest), faltante: e.primerFalta ? e.primerFalta.faltante : 0, sinInteres: e.sinInteres });
   }
-  const total = normalizarGasto(gasto, start).total ?? 0;
-  const mejor = meses.find((m) => m.codigo === 'verde') || meses.find((m) => m.codigo === 'ambar' && total > 0 && m.costoExtra < total * 0.01) || null;
+  const vacio = !(nn(normalizarGasto(gasto, start).total ?? normalizarGasto(gasto, start).montoCuota) > 0);
+  const mejor = vacio ? null : meses.find((m) => m.sinInteres) || null;
   return {
+    vacio,
     meses,
     mejorMomento: mejor ? { key: mejor.key, mesNombre: mesAnio(mejor.key) } : null,
-    textoSinMejor: mejor ? null : 'En los próximos 12 meses no encuentro un mes sin costo. Probá con un monto menor.',
+    textoSinMejor: mejor || vacio ? null : 'En los próximos 12 meses no encuentro un mes sin costo. Probá con un monto menor.',
     leyenda: LEYENDA_MAPA,
   };
 }
@@ -824,7 +893,7 @@ export function mapaMeses(state, gasto, today = new Date()) {
  */
 export function topeSinCosto(state, key, { modo = 'una', cuotas = 1, today = new Date() } = {}) {
   const t = dia(today);
-  const { sim, start } = ctx(state, t);
+  const { sim } = ctx(state, t);
   const n = Math.max(1, Math.round(cuotas));
   const mesesSim = sim.months.slice(0, 12);
   const maxInflow = Math.max(0, ...mesesSim.map((m) => nn(m.income) + nn(m.collections)));
@@ -859,7 +928,6 @@ export function topeSinCosto(state, key, { modo = 'una', cuotas = 1, today = new
   else if (hayDeuda) texto = `En ${nombre} no hay plata que no cueste: mientras tengas la tarjeta, cada peso que gastás de más suma interés.`;
   else texto = `En ${nombre} no hay margen para gastar de más.`;
   const textoSinFaltar = sinFaltar > sinCosto ? `Hasta ${money(sinFaltar)}${unidad} en ${nombre} no te falta plata, pero cuesta interés.` : null;
-  void start;
   return { key, mesNombre: nombre, modo, cuotas: n, sinCosto, sinFaltar, porMesSinCosto: porMes(sinCosto), porMesSinFaltar: porMes(sinFaltar), texto, textoSinFaltar };
 }
 
@@ -869,7 +937,8 @@ export function topeSinCosto(state, key, { modo = 'una', cuotas = 1, today = new
 
 /**
  * "Cuánto pagar el {fecha}": solo el mínimo, lo que sobra y otro monto.
- * Opciones: { id:'minimo'|'sobra'|'otro', titulo, monto, paidOn, salidaTexto, totalInterest, ahorro, recomendada, aviso? }.
+ * Opciones: { id:'minimo'|'sobra'|'otro', titulo, monto, paidOn, salidaTexto, totalInterest, ahorro, recomendada, aviso?, faltaPlata? }.
+ * `maximoQueAlcanza` = lo más que se puede pagar este mes sin que falte plata (el monto de "Lo que sobra"); un 'otro' mayor trae `aviso`.
  * elegida: 'minimo' (settings.strategy 'none'), 'otro' (hay pago elegido para ese mes) o 'sobra'.
  * `otro` en opts: monto a evaluar (se muestra como opción 'otro' aunque no esté guardado).
  * @param {{otro?: number, debtId?: string}} [opts]
@@ -898,7 +967,10 @@ export function escenariosPago(state, today = new Date(), { otro, debtId } = {})
   if (montoOtro !== null) {
     const sOtro = run({ ...limpio, debts: limpio.debts.map((x) => (x.id === d.id ? { ...x, planned: { ...(x.planned || {}), [pp.key]: montoOtro } } : x)) }, { strategy: estrategia, today: t });
     const f = fila('otro', 'Otro monto', montoOtro, sOtro);
-    if (montoOtro < minimoReal - EPS) f.aviso = 'Es menos que el mínimo del resumen: puede traer cargos del banco.';
+    const faltaPlata = Math.max(0, nn(sOtro.months[idx]?.shortfall));
+    f.faltaPlata = faltaPlata;
+    if (faltaPlata > EPS) f.aviso = `Es más de lo que te sobra este mes: te faltarían ${money(faltaPlata)}, que se suman a la deuda de la tarjeta.`;
+    else if (montoOtro < minimoReal - EPS) f.aviso = 'Es menos que el mínimo del resumen: puede traer cargos del banco.';
     opciones.push(f);
   }
   const e = estadoResumen(dState, t);
@@ -912,11 +984,89 @@ export function escenariosPago(state, today = new Date(), { otro, debtId } = {})
     opciones,
     elegida: elegido !== undefined && elegido !== null ? 'otro' : state.settings.strategy === 'none' ? 'minimo' : 'sobra',
     minimoDelResumen: minimoReal,
+    maximoQueAlcanza: montoSob,
     resumenViejo: e.viejo,
     aviso: e.viejo ? 'Ya cerró un resumen nuevo: cargalo para ver el monto exacto.' : null,
     pie: 'Pagar el mínimo está bien si este mes no da para más. Lo importante es saber cuánto cuesta.',
     pieDecision: PIE_DECISION,
   };
+}
+
+/**
+ * Lo que se precarga al cargar un resumen nuevo: las fechas del mes pasado más un mes y la tasa que ya estaba.
+ * @returns {{hayAnterior:boolean, closedOn:string|null, dueOn:string|null, rate:number|null, nota:string|null}}
+ */
+export function precargaResumen(debt) {
+  const st = debt?.statement;
+  if (!st) return { hayAnterior: false, closedOn: null, dueOn: null, rate: nn(debt?.rate) > 0 ? nn(debt.rate) : null, nota: null };
+  return {
+    hayAnterior: true,
+    closedOn: st.nextCloseOn || toISO(addMonthsDate(st.closedOn, 1)),
+    dueOn: st.nextDueOn || (st.dueOn ? toISO(addMonthsDate(st.dueOn, 1)) : null),
+    rate: nn(debt.rate) > 0 ? nn(debt.rate) : null,
+    nota: 'Las fechas y el interés son los del resumen anterior: corregilos con tu resumen nuevo.',
+  };
+}
+
+/**
+ * Revisa con amabilidad lo que se escribió del resumen antes de guardarlo (pantalla "Revisá"). Los campos pueden ser texto o número.
+ * input: { total, min, rate, closedOn, dueOn, nextCloseOn?, nextDueOn?, newCharges?, interes? }.
+ * Cada aviso: { campo, nivel: 'corregir'|'confirmar', texto, sugerido? }. `corregir` impide guardar; `confirmar` pide un "Sí, está bien".
+ * Reglas: tasa mayor a 15 se toma como anual y se convierte ("79% parece la tasa anual. ¿Usamos 6,49% por mes?"); mínimo fuera del 5% al 30%
+ * del total se confirma; más de 9 dígitos, "Mirá bien los ceros, por favor."; las fechas tienen que tener sentido.
+ * @param {{debt?: object, today?: Date}} [opts] con `debt` también compara contra el resumen que ya estaba cargado
+ * @returns {{ok:boolean, confirmar:boolean, avisos:object[], valores:{total:number|null, min:number|null, rate:number|null, closedOn:string|null, dueOn:string|null, nextCloseOn?:string, nextDueOn?:string, newCharges?:number, interes?:number}, filas:{rotulo:string, valor:string}[]}}
+ */
+export function validarResumen(input = {}, { debt, today = new Date() } = {}) {
+  const t = dia(today);
+  const hoy = toISO(t);
+  const avisos = [];
+  const av = (campo, nivel, texto, sugerido) => avisos.push(sugerido === undefined ? { campo, nivel, texto } : { campo, nivel, texto, sugerido });
+  const iso = (x) => {
+    const d = x instanceof Date ? toISO(x) : typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.trim()) ? x.trim() : null;
+    return d && toISO(d) === d ? d : null; // descarta fechas que no existen (31 de febrero)
+  };
+  const total = parseMoney(input.total);
+  const min = parseMoney(input.min);
+  const tasa = parseRate(input.rate);
+  const closedOn = iso(input.closedOn);
+  const dueOn = iso(input.dueOn);
+
+  if (total === null || total <= 0) av('total', 'corregir', 'Poné el total a pagar que figura en tu resumen.');
+  else if (!revisarMonto(total).ok) av('total', 'corregir', revisarMonto(total).aviso);
+  if (min === null || min < 0) av('min', 'corregir', 'Poné el pago mínimo que figura en tu resumen.');
+  else if (!revisarMonto(min).ok) av('min', 'corregir', revisarMonto(min).aviso);
+  else if (total && total > 0 && min > total) av('min', 'corregir', 'El pago mínimo no puede ser más que el total.');
+  else if (total && total > 0) {
+    const p = (min / total) * 100;
+    if (p < 5 || p > 30) av('min', 'confirmar', `El mínimo es el ${Math.round(p)}% del total y lo normal es entre 5% y 30%. ¿Está bien?`);
+  }
+  if (!tasa) av('rate', 'corregir', 'Poné el interés por mes de tu resumen (por ejemplo 6,5).');
+  else if (tasa.convertida) av('rate', 'confirmar', tasa.aviso, tasa.valor);
+  else if (tasa.valor === 0) av('rate', 'confirmar', 'Pusiste 0% de interés. ¿Está bien?');
+  if (!closedOn) av('closedOn', 'corregir', 'Poné la fecha en que cerró tu resumen.');
+  else if (closedOn > hoy) av('closedOn', 'corregir', 'Esa fecha de cierre todavía no llegó.');
+  if (!dueOn) av('dueOn', 'corregir', 'Poné la fecha de vencimiento de tu resumen.');
+  else if (closedOn && dueOn <= closedOn) av('dueOn', 'corregir', 'El vencimiento tiene que ser después del cierre.');
+  else if (closedOn && daysBetween(closedOn, dueOn) > 40) av('dueOn', 'confirmar', 'El vencimiento queda muy lejos del cierre. ¿Está bien?');
+  const ant = debt?.statement;
+  if (ant?.closedOn && closedOn && closedOn <= ant.closedOn) av('closedOn', 'confirmar', `Ese resumen cerró el mismo día o antes que el que ya cargaste (${fecha(ant.closedOn)}). ¿Está bien?`);
+  if (ant && nn(ant.total) > 0 && total > 0 && (total > nn(ant.total) * 3 || total < nn(ant.total) / 3)) av('total', 'confirmar', `Es muy distinto del resumen anterior (${money(ant.total)}). ¿Está bien?`);
+
+  const valores = { total, min, rate: tasa ? tasa.valor : null, closedOn, dueOn };
+  for (const k of ['nextCloseOn', 'nextDueOn']) if (iso(input[k])) valores[k] = iso(input[k]);
+  for (const [k, v] of [['newCharges', input.newCharges], ['interes', input.interes]]) {
+    const n = parseMoney(v);
+    if (n !== null && n >= 0 && v !== '') valores[k] = n;
+  }
+  const filas = [
+    { rotulo: 'Total a pagar', valor: total !== null && total > 0 ? money(total) : '—' },
+    { rotulo: 'Pago mínimo', valor: min !== null && min >= 0 ? money(min) : '—' },
+    { rotulo: 'Interés por mes', valor: tasa ? pct(tasa.valor) : '—' },
+    { rotulo: 'Cerró el', valor: closedOn ? fecha(closedOn) : '—' },
+    { rotulo: 'Vence el', valor: dueOn ? fecha(dueOn) : '—' },
+  ];
+  return { ok: !avisos.some((a) => a.nivel === 'corregir'), confirmar: avisos.some((a) => a.nivel === 'confirmar'), avisos, valores, filas };
 }
 
 /**
@@ -1025,7 +1175,7 @@ export function deudaSobreIngreso(state, today = new Date()) {
   const pctAt = (i) => ((sim.months[i].installments + minimoMes(sim, i)) / Math.max(1, sim.months[i].income)) * 100;
   const p0 = pctAt(0);
   let alivio = null;
-  for (let i = 1; i < Math.min(48, sim.months.length); i++) {
+  for (let i = 1; p0 >= 1 && i < Math.min(48, sim.months.length); i++) {
     if (sim.months[i].income > 0 && pctAt(i) <= p0 * 0.5) {
       alivio = { key: sim.months[i].key, mesNombre: mesDe(sim.months[i].key), porCien: Math.round(pctAt(i)) };
       break;
@@ -1151,7 +1301,6 @@ export function mensajeWhatsApp(state, receivableId, today = new Date(), { monto
   const r = state.receivables.find((x) => x.id === receivableId);
   if (!r) return '';
   const cuota = nn(monto ?? r.monthlyPayment);
-  const start = monthKeyOf(dia(today));
   let fin = '';
   if (cuota > 0) {
     const sim = run({ ...state, receivables: state.receivables.map((x) => (x.id === receivableId ? { ...x, monthlyPayment: cuota } : x)) }, { today });
@@ -1159,7 +1308,6 @@ export function mensajeWhatsApp(state, receivableId, today = new Date(), { monto
     if (p) fin = ` Si me pasás ${money(cuota)} por mes terminás en ${mesDe(p)}.`;
     else fin = ` Si me pasás ${money(cuota)} por mes, vamos viendo.`;
   }
-  void start;
   return `Hola ${r.person || ''}, te paso la cuenta de la tarjeta según el último resumen (aproximado): tu parte hoy son ${money(r.balance)}.${fin} ¿Te sirve? Lo vemos y lo anotamos.`.replace('Hola ,', 'Hola,');
 }
 
@@ -1247,7 +1395,7 @@ const PASOS = [
  * @returns {{hechos:number, total:number, completo:boolean, pasos:{n:number,id:string,titulo:string,estado:'hecho'|'pendiente',ruta:string}[], faltan:{id:string,texto:string,paso:number}[], siguiente:object|null}}
  */
 export function completitud(state, today = new Date()) {
-  const eng = toEngine(state, dia(today));
+  const eng = engDe(state, dia(today));
   const pasos = state.settings.pasos || {};
   const pend = (t) => eng.pending.some((p) => p.target === t);
   const hayPlanilla = state.installments.some((x) => x.payroll);
@@ -1276,7 +1424,7 @@ export function completitud(state, today = new Date()) {
  * @returns {{hay:boolean, items:{id:string,texto:string,paso:number}[]}}
  */
 export function faltanDatosClave(state, today = new Date()) {
-  const eng = toEngine(state, dia(today));
+  const eng = engDe(state, dia(today));
   const items = [];
   for (const p of eng.pending.filter((x) => x.cambiaResultado)) items.push({ id: p.target, texto: p.target === 'afip' ? 'Plan de AFIP' : 'Confirmar planilla', paso: 5 });
   return { hay: items.length > 0, items };
@@ -1289,7 +1437,6 @@ export function faltanDatosClave(state, today = new Date()) {
 export function siguientePaso(state, today = new Date()) {
   const t = dia(today);
   const out = [];
-  const { sim } = ctx(state, t);
   const hayTarjeta = state.debts.some((d) => d.kind === 'card' && nn(d.balance) > 0);
   const cand = state.receivables.filter((r) => nn(r.balance) > 0 && !(nn(r.monthlyPayment) > 0)).sort((a, b) => nn(b.balance) - nn(a.balance))[0];
   if (cand && hayTarjeta) {
@@ -1306,10 +1453,11 @@ export function siguientePaso(state, today = new Date()) {
     out.push({ id: 'liberacion', titulo: 'Lo próximo que queda libre', texto: `${cap(mesAnio(lib.desde))}: ${queda}.`, boton: { texto: 'Ver deudas', ruta: '#/deudas' } });
   }
   const c = completitud(state, t);
-  if (!c.completo) {
-    out.push({ id: 'datos', titulo: 'Tus datos', texto: `Faltan ${c.faltan.length} datos para que esto sea más exacto: ${lista(c.faltan.map((f) => f.texto))}.`, progreso: { hechos: c.hechos, total: c.total }, boton: { texto: 'Completar', ruta: '#/mas' } });
+  if (!c.completo || c.faltan.length) {
+    const n = c.faltan.length;
+    const frase = n === 1 ? 'Falta 1 dato' : `Faltan ${n} datos`;
+    out.push({ id: 'datos', titulo: 'Tus datos', texto: `${frase} para que esto sea más exacto: ${lista(c.faltan.map((f) => f.texto))}.`, progreso: { hechos: c.hechos, total: c.total }, boton: { texto: 'Completar', ruta: '#/mas' } });
   }
-  void sim;
   return out.slice(0, 3);
 }
 
@@ -1365,6 +1513,83 @@ export function revelacion(state, today = new Date()) {
   const s = salidaTarjeta(state, today);
   if (s.estado === 'fecha') frases.push({ tipo: 'salida', texto: `${g.estado === 'ok' ? `Podés gastar ${money(g.porDia)} por día y ` : ''}${g.estado === 'ok' ? 'salís' : 'Salís'} de la tarjeta en ${mesDe(s.paidOn)}.` });
   return { frases, supuesto: s.estado === 'fecha' ? ASUME_SALIDA : null };
+}
+
+/**
+ * Pantalla Meses: una fila por mes con su estado, lo que sobra y sus eventos, más los dos chips de la cabecera.
+ * fila: { i, key, mesNombre, mesCorto, free, compacto, code, label, tone, pct, esActual, estimado (algún ingreso o gasto estimado),
+ *   eventos:string[], evento (primer evento o 'Un mes sin sorpresas.') }.
+ * mejorMes: { key, mesNombre, free, texto:'Mejor mes: diciembre +$534.364' }; mesDificil (solo si existe): { key, mesNombre, free, texto:'Mes difícil: enero −$202.000' }.
+ * @param {{n?: number}} [opts] cantidad de meses (4 o 12)
+ */
+export function proyeccion(state, today = new Date(), { n = 12 } = {}) {
+  const { sim, eng, estados } = ctx(state, today);
+  const hayIngresos = state.incomes.length > 0;
+  const total = Math.max(1, Math.min(Math.round(n), sim.months.length));
+  const filas = sim.months.slice(0, total).map((m, i) => {
+    const eventos = eventosMes(state, i, today).map((e) => e.texto);
+    const estimado = [...eng.incomes, ...eng.expenses].some((x) => x.estimated === true && isActive(x, m.key) && amountFor(x, m.key) > 0);
+    return { i, key: m.key, mesNombre: mes(m.key), mesCorto: monthName(m.key, { short: true }), free: m.free, compacto: compact(m.free), code: estados[i].code, label: estados[i].label, tone: estados[i].tone, pct: estados[i].pct, esActual: i === 0, estimado, eventos, evento: eventos[0] || 'Un mes sin sorpresas.' };
+  });
+  const doce = sim.months.slice(0, 12).map((m, i) => ({ m, i }));
+  const mejor = doce.reduce((a, b) => (b.m.free > a.m.free ? b : a), doce[0]);
+  const dificiles = doce.filter(({ i }) => estados[i].code === 'falta');
+  const peor = dificiles.length ? dificiles.reduce((a, b) => (b.m.free < a.m.free ? b : a)) : null;
+  return {
+    hayIngresos,
+    filas,
+    mejorMes: hayIngresos ? { key: mejor.m.key, mesNombre: mes(mejor.m.key), free: mejor.m.free, texto: `Mejor mes: ${mes(mejor.m.key)} ${mejor.m.free < 0 ? '' : '+'}${money(mejor.m.free)}` } : null,
+    mesDificil: peor ? { key: peor.m.key, mesNombre: mes(peor.m.key), free: peor.m.free, texto: `Mes difícil: ${mes(peor.m.key)} ${money(peor.m.free)}` } : null,
+  };
+}
+
+/**
+ * Lo que se dice al terminar cada paso del armado (1 a 7). Sin jerga y sin números que angustien: una fecha y una acción.
+ * @param {number} paso 1 a 7
+ * @returns {{texto:string, detalle:string|null, provisoria?:boolean, accion?:{texto:string}}|null} null si todavía no hay nada que decir
+ * (paso 6: `detalle` es el supuesto de la fecha, que va debajo en 16px o más, y `provisoria` pide el cartel 'Fecha provisoria')
+ */
+export function recompensa(state, paso, today = new Date()) {
+  const t = dia(today);
+  const nombre = (state.settings?.name || '').trim();
+  if (paso === 1) {
+    const n = state.people.length;
+    return { texto: `Listo${nombre ? `, ${nombre}` : ''}.${n > 1 ? ` Somos ${n} en las cuentas.` : ''}`, detalle: null };
+  }
+  if (paso === 4) return { texto: 'Ahora vas a ver cómo vienen tus meses. Es para ordenarlos, no para asustarte.', detalle: null };
+  if (!state.incomes.length) return null;
+  if (paso === 2 || paso === 3) {
+    const { sim, eng } = ctx(state, t);
+    const m0 = sim.months[0];
+    let texto = `En ${mes(m0.key)} entran ${money(m0.income)}.`;
+    if (paso === 3) {
+      // el primer mes del año en que no se cobra movilidad (por ejemplo la feria de enero)
+      const mov = eng.incomes.find((x) => x.kind === 'movilidad');
+      const sin = mov ? sim.months.slice(1, 12).find((m) => !isActive(mov, m.key)) : null;
+      if (sin) texto += ` En ${mes(sin.key)}, ${money(sin.income)}.`;
+    }
+    return { texto, detalle: null };
+  }
+  if (paso === 5) {
+    const l = liberaciones(state, t).items.filter((x) => (x.tipo === 'prestamo' || x.tipo === 'cuota') && x.fin).sort((a, b) => (a.fin < b.fin ? -1 : 1))[0];
+    if (!l) return null;
+    return { texto: `El de ${money(l.monto)} termina en ${mesDe(l.fin)}; desde ${mes(l.desde)} queda libre esa plata.`, detalle: null };
+  }
+  if (paso === 6) {
+    const s = salidaTarjeta(state, t);
+    if (s.estado === 'fecha') return { texto: `Con lo que cargaste, salís de la tarjeta en ${mesDe(s.paidOn)}.`, detalle: s.supuesto, provisoria: s.provisoria, accion: { texto: 'Ver mi panorama' } };
+    if (s.estado === 'muyLejos' || s.estado === 'noTermina') return { texto: s.texto, detalle: s.supuesto, provisoria: s.provisoria, accion: { texto: 'Ver mi panorama' } };
+    return null;
+  }
+  if (paso === 7) {
+    const r = state.receivables.filter((x) => nn(x.balance) > 0).sort((a, b) => nn(b.balance) - nn(a.balance))[0];
+    if (!r) return { texto: 'Anotado: por ahora nadie te debe. Si alguien te debe, lo sumás cuando quieras.', detalle: null };
+    const monto = nn(r.balance) >= 100000 ? 50000 : Math.max(1000, Math.round(nn(r.balance) / 2 / 1000) * 1000);
+    const e = escenariosCobro(state, r.id, t, { montos: [monto] })?.escenarios.find((x) => x.monto === monto);
+    const nom = r.person || 'Esa persona';
+    return { texto: `${nom} te debe ${money(r.balance)}.${e?.terminaEn ? ` Con ${money(monto)} por mes termina en ${mesDe(e.terminaEn)}.` : ''}`, detalle: null };
+  }
+  return null;
 }
 
 // ============================================================================

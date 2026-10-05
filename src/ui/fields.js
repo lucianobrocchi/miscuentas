@@ -202,7 +202,7 @@ export function toggle(opts = {}) {
 /**
  * Elección entre pocas opciones. choice({ label:'¿Cobra?', options:[{value:'all', label:'Todos los meses'}, {value:'6,12', label:'Solo junio y diciembre'}],
  *   value:'all', variant:'segmented' | 'options' (radios de 88px con título/sub) | 'chips', onChange })
- * Para preguntas tipo Sí / No / No sé: options:[{value:true,label:'Sí'},{value:false,label:'No'},{value:null,label:'No sé'}] con variant:'options'.
+ * Para preguntas tipo Sí / No / No sé: options:[{value:true,label:'Sí',sub:'...'},{value:false,label:'No'},{value:null,label:'No sé'}] con variant:'options' (acepta label o title, y sub/end/tag).
  * get() devuelve el valor ORIGINAL (boolean/null/number/string), no el texto.
  */
 export function choice(opts = {}) {
@@ -220,7 +220,7 @@ export function choice(opts = {}) {
     paint();
     control._paint = paint;
   } else if (variant === 'options') {
-    control = optionGroup({ options: options.map((o) => ({ ...o, value: keyOf(o.value) })), value: keyOf(cur), onChange: handle, name: name || id, ariaLabel: label });
+    control = optionGroup({ options: options.map((o) => ({ ...o, title: o.title ?? o.label, value: keyOf(o.value) })), value: keyOf(cur), onChange: handle, name: name || id, ariaLabel: label });
   } else {
     control = segmented({ options: options.map((o) => ({ ...o, value: keyOf(o.value) })), value: keyOf(cur), onChange: handle, name: name || id, ariaLabel: label });
   }

@@ -1,9 +1,38 @@
 {
   "name": "Mis Cuentas",
   "short_name": "Mis Cuentas",
-  "start_url": ".",
+  "description": "Tu plata, clara. Cuánto te sobra cada mes y cuándo salís de cada deuda. Tus datos quedan solo en tu celular.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#f6f4ef",
-  "theme_color": "#1f6f5c",
-  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+  "orientation": "any",
+  "lang": "es-AR",
+  "dir": "ltr",
+  "background_color": "#F6F3EC",
+  "theme_color": "#0C4A3E",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "¿Me lo puedo permitir?",
+      "short_name": "¿Me alcanza?",
+      "description": "Probá una compra antes de gastar",
+      "url": "./#/puedo",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Anotar una devolución",
+      "short_name": "Me devolvieron",
+      "description": "Anotá plata que te devolvió alguien de la familia",
+      "url": "./#/deudas/medeben",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
 }
