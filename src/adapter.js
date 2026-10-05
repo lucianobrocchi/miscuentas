@@ -94,8 +94,9 @@ export function normalizarGasto(g, start) {
     return { nombre, modo, desde, cuotas, montoCuota: cuota, total: cuota * cuotas, hasta: undefined };
   }
   if (modo === 'mensual') {
+    const porMes = Math.max(0, nn(g?.monto ?? g?.montoCuota)); // un gasto ya normalizado trae montoCuota (no monto): sin esto quedaba en $0
     const meses = hasta ? Math.max(0, monthDiff(desde, hasta) + 1) : null;
-    return { nombre, modo, desde, cuotas: 1, montoCuota: monto, total: meses === null ? null : monto * meses, hasta };
+    return { nombre, modo, desde, cuotas: 1, montoCuota: porMes, total: meses === null ? null : porMes * meses, hasta };
   }
   return { nombre, modo, desde, cuotas: 1, montoCuota: monto, total: monto, hasta: undefined };
 }
