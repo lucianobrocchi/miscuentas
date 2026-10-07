@@ -1141,7 +1141,7 @@ export function liberaciones(state, today = new Date()) {
   for (const d of eng.debts) {
     if (d.balance <= EPS) continue;
     const paidOn = sim.debts.find((x) => x.id === d.id)?.paidOn || null;
-    items.push({ id: d.id, tipo: 'tarjeta', nombre: d.name, monto: nn(d.minPayment), fin: paidOn, desde: paidOn ? addMonths(paidOn, 1) : null, quedan: paidOn ? monthDiff(start, paidOn) + 1 : null, cuotaActual: null, cuotasTotal: null, noTermina: !paidOn, aCompletar: false, planilla: false, saldo: d.balance });
+    items.push({ id: d.id, tipo: 'tarjeta', nombre: d.name, monto: nn(d.minPayment), fin: paidOn, desde: paidOn ? addMonths(paidOn, 1) : null, quedan: paidOn ? monthDiff(start, paidOn) + 1 : null, cuotaActual: null, cuotasTotal: null, noTermina: !paidOn, aCompletar: false, planilla: false, saldo: nn((state.debts || []).find((x) => x.id === d.id)?.balance ?? d.balance) });
   }
   for (const p of eng.pending.filter((x) => x.target === 'afip' || x.target === 'cuota')) {
     items.push({ id: p.id, tipo: 'pendiente', nombre: p.label, monto: 0, fin: null, desde: null, quedan: null, cuotaActual: null, cuotasTotal: null, noTermina: false, aCompletar: true, target: p.target, planilla: false });
@@ -1449,8 +1449,8 @@ export function siguientePaso(state, today = new Date()) {
   }
   const lib = liberaciones(state, t).proxima;
   if (lib) {
-    const queda = lib.tipo === 'tarjeta' ? `termina la tarjeta y quedan libres ${money(lib.monto)} por mes` : `termina ${lib.tipo === 'prestamo' ? 'el préstamo' : 'la cuota'} de ${money(lib.monto)} y queda libre esa plata: ${money(lib.monto)} por mes`;
-    out.push({ id: 'liberacion', titulo: 'Lo próximo que queda libre', texto: `${cap(mesAnio(lib.desde))}: ${queda}.`, boton: { texto: 'Ver deudas', ruta: '#/deudas' } });
+    const queda = lib.tipo === 'tarjeta' ? `dejás de pagar la tarjeta y quedan libres ${money(lib.monto)} por mes` : `termina ${lib.tipo === 'prestamo' ? 'el préstamo' : 'la cuota'} de ${money(lib.monto)} y queda libre esa plata: ${money(lib.monto)} por mes`;
+    out.push({ id: 'liberacion', titulo: 'Lo próximo que queda libre', texto: `Desde ${mesAnio(lib.desde)} ${queda}.`, boton: { texto: 'Ver deudas', ruta: '#/deudas' } });
   }
   const c = completitud(state, t);
   if (!c.completo || c.faltan.length) {

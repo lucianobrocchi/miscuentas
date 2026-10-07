@@ -14,9 +14,11 @@ const CORE = [
 ];
 // Pantallas y editores: se precachean si existen (otros archivos de la app se escriben en paralelo).
 const SCREENS = [
-  'src/ui/editors.js',
+  'src/ui/editors.js', 'src/ui/_ed-core.js', 'src/ui/_ed-forms.js', 'src/ui/_ed-logic.js', 'src/ui/_ed-style.js', 'src/ui/_install.js', 'src/ui/_backup.js', 'src/ui/screens/_mas-secciones.js',   // editores y su apoyo (S4)
   'src/ui/screens/hoy.js', 'src/ui/screens/meses.js', 'src/ui/screens/puedo.js', 'src/ui/screens/deudas.js',
+  'src/ui/screens/_hoy-logic.js', 'src/ui/screens/_hoy-sheets.js',   // módulos de apoyo de Hoy y Meses: sin ellos, sin internet esas pantallas no abren
   'src/ui/screens/tarjeta.js', 'src/ui/screens/medeben.js', 'src/ui/screens/mas.js',
+  'src/ui/screens/_deudas-logic.js', 'src/ui/screens/_deudas-sheets.js', 'src/ui/screens/_puedo-logic.js',   // apoyo de Deudas/Tarjeta/Me deben y de ¿Me alcanza?
   'src/ui/screens/bienvenida.js', 'src/ui/screens/onboarding.js',
 ];
 const EXTRAS = ['icons/icon-maskable.svg', 'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'];

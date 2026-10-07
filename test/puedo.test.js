@@ -185,6 +185,18 @@ test('pregunta inversa: hasta cuánto puedo gastar en diciembre sin que me cuest
   assert.match(cuotas.lineas[1], /^En 6 cuotas: hasta \$\d+\.000 por mes sin problema\.$/);
 });
 
+test('línea bajo el mapa: "Hasta $X por mes sin problema" según cómo se paga', () => {
+  const una = L.lineaMes(D.topeSinCosto(S, '2027-06', { modo: 'una', today: HOY }), { money });
+  assert.equal(una, 'En junio: hasta $722.000 sin problema.');
+  const cuotas = L.lineaMes(D.topeSinCosto(S, '2027-06', { modo: 'cuotas', cuotas: 6, today: HOY }), { money });
+  assert.match(cuotas, /^En junio: hasta \$\d+\.000 por mes sin problema\.$/);
+  const mensual = L.lineaMes(D.topeSinCosto(S, '2027-06', { modo: 'mensual', today: HOY }), { money });
+  assert.match(mensual, /^En junio: hasta \$\d+\.000 por mes sin problema\.$/);
+  // un mes en el que todo suma interés lo dice sin dar un número inventado
+  assert.equal(L.lineaMes(D.topeSinCosto(S, '2026-12', { modo: 'una', today: HOY }), { money }), 'En diciembre: cualquier gasto suma interés.');
+  assert.equal(L.lineaMes(null, { money }), null);
+});
+
 // ---------------------------------------------------------------- lectura de los resultados de derive
 test('sinTitulo: el título no se repite al principio del texto', () => {
   assert.equal(L.sinTitulo('Se puede, pero tiene costo', 'Se puede, pero tiene costo. Un viaje te sale $1.'), 'Un viaje te sale $1.');
@@ -204,6 +216,17 @@ test('filasVeredicto: no muestra un interés absurdo cuando la tarjeta deja de t
   // en el caso normal sí está
   const normal = L.filasVeredicto(ver(L.armarGasto(form({ total: 300000, desde: '2026-12' }), START), { conTope: false }));
   assert.deepEqual(normal.map((f) => f.label), ['Diciembre queda en', 'Salís de la tarjeta', 'Interés extra']);
+});
+
+test('textoVerde: sin tarjeta con deuda no habla de la tarjeta', () => {
+  const sinDeuda = structuredClone(S); sinDeuda.debts = []; sinDeuda.receivables = [];
+  const v = D.veredicto(sinDeuda, L.armarGasto(form({ total: 20000, desde: '2026-12' }), START), HOY);
+  assert.equal(v.codigo, 'verde');
+  assert.equal(L.hayTarjetaEnVeredicto(v), false);
+  assert.ok(!/tarjeta/.test(L.textoVerde('diciembre 2026', 'una', { conTarjeta: false })));
+  const conDeuda = ver(L.armarGasto(form({ total: 20000, desde: '2027-06' }), START));
+  assert.equal(L.hayTarjetaEnVeredicto(conDeuda), true);
+  assert.match(L.textoVerde('junio 2027', 'una', { conTarjeta: true }), /salís de la tarjeta/);
 });
 
 test('textoVerde dice en qué mes', () => {

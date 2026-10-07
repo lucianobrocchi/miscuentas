@@ -107,7 +107,7 @@ html[data-privacy="on"] .pname::before { content: attr(data-alias); }
 /* ---------------- cascarón ---------------- */
 #app { min-height: 100dvh; }
 #shell { max-width: 640px; margin-inline: auto; padding: 0 var(--gutter); }
-#shell .wrap { min-height: 100dvh; padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + var(--s6)); }
+#shell .wrap { min-height: 100dvh; padding-bottom: calc(max(var(--tabbar-h), var(--tabbar-real, 0px)) + env(safe-area-inset-bottom, 0px) + var(--s6)); }
 body[data-notabs] #shell .wrap { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--s6)); }
 #view { display: block; min-height: 50vh; outline: none; }
 #view > .screen { animation: screen-in 240ms var(--ease) both; }

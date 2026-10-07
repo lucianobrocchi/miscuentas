@@ -119,7 +119,7 @@ export function debtLine({ series, height = 160, ariaLabel, tableCaption = 'Deud
     // base y línea de cero
     els.push(h('line', { x1: padL, y1: padT + ih, x2: W - padR, y2: padT + ih, class: 'chart-axis' }));
     // etiqueta del máximo (arriba a la izquierda) y del cero
-    els.push(h('text', { x: padL, y: fs * 0.95, class: 'chart-txt chart-txt-2' }, fmt.compact(maxV)));
+    els.push(h('text', { x: padL, y: fs * 0.95, class: 'chart-txt chart-txt-2' }, document.documentElement.dataset.privacy === 'on' ? '••••' : fmt.compact(maxV)));
     // etiquetas del eje x: hasta 4, repartidas sin pisarse
     const nl = Math.min(4, keys.length);
     const picks = [];
@@ -184,7 +184,7 @@ export function debtLine({ series, height = 160, ariaLabel, tableCaption = 'Deud
  * Línea de tiempo con eje común. HTML+CSS (posiciones en %): cada fila es un botón de 96px.
  * timeline({
  *   from:'2026-10', to:'2029-03', todayKey:'2026-10',
- *   items:[{ id, label:'Tarjeta Visa Gold', sub:'Debés $1.800.000', start:'2026-10', end:'2027-04', dateLabel:'abril 2027',
+ *   items:[{ id, label:'Tarjeta Visa', sub:'Debés $1.800.000', start:'2026-10', end:'2027-04', dateLabel:'abril 2027',
  *            tone:'brand'|'info', pending:false, pipsInfo:{ total:36, paid:26 }, onClick, ariaLabel }]
  * })
  * Marcas del eje: cada 1 de enero dentro del rango (2027, 2028...) + "Hoy". Si pending:true la barra es punteada azul ("a completar").

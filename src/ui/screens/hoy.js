@@ -9,6 +9,8 @@ import * as L from './_hoy-logic.js';
 import { abrirEditor, filasPendientes, abrirGastarHoy, abrirMesDificil, abrirSalida, abrirCierre, abrirHitos, abrirCobro } from './_hoy-sheets.js';
 
 const ANCHO = '(min-width: 1024px)';
+// La tira de 12 meses necesita un hero de al menos ~450px (12 columnas con rótulo de 3 letras): por debajo de este ancho, 4 meses como en el celular.
+const ANCHO_TIRA = '(min-width: 1180px)';
 const nombreCorto = (n) => String(n || 'Tarjeta').replace(/^tarjeta\s+(?=\S)/i, '');
 
 export default {
@@ -19,14 +21,15 @@ export default {
     const { ui } = ctx;
     const { h } = ui;
     const D = ctx.derive;
-    const F = ctx.format;
     const t = ctx.today();
     let vivo = true;
     const timers = [];
     const mq = matchMedia(ANCHO);
+    const mqTira = matchMedia(ANCHO_TIRA);
     const alCambiarAncho = () => ctx.rerender();
     mq.addEventListener?.('change', alCambiarAncho);
-    const limpiar = () => { vivo = false; timers.forEach(clearTimeout); mq.removeEventListener?.('change', alCambiarAncho); };
+    mqTira.addEventListener?.('change', alCambiarAncho);
+    const limpiar = () => { vivo = false; timers.forEach(clearTimeout); mq.removeEventListener?.('change', alCambiarAncho); mqTira.removeEventListener?.('change', alCambiarAncho); };
 
     // La proyección del mes se guarda una sola vez: es lo que el cierre de mes compara con lo que pasó de verdad.
     const h0 = D.hero(ctx.state, t);
@@ -71,7 +74,8 @@ export default {
           ariaLabel: `Entran ${ui.srMoney(H.numero)} en ${H.mesNombre}. Cargá tus gastos para saber cuánto sobra.`,
         });
       }
-      const filas = L.filasMeses(D, state, t, ancho ? 12 : 4).items;
+      const tira12 = ancho && mqTira.matches;
+      const filas = L.filasMeses(D, state, t, tira12 ? 12 : 4).items;
       const tira = filas.map((it) => ({
         key: it.key, label: it.short, name: it.nombreCorto, value: it.value, state: it.state, current: it.esActual, estimated: it.estimated,
         onClick: ir(`#/meses/${it.key}`),
@@ -80,18 +84,20 @@ export default {
       const abrirAviso = av.accion === 'mesDificil' ? () => abrirMesDificil(ctx, av.key) : av.accion === 'mes' ? ir(`#/meses/${av.key}`) : undefined;
       const nota = H.estimados.texto || (H.provisorio ? 'Es provisorio: faltan datos' : null);
       const nodo = ui.hero({
-        label: H.rotulo, value: H.numero, status: H.chip.tone, statusLabel: H.chip.texto, caption: H.subtitulo,
+        label: H.rotulo, value: H.numero, status: H.chip.tone, statusLabel: H.chip.texto,
+        // cuando el mes actual falta, el botón de abajo ya dice "Hay 3 formas de cubrirlo": no se repite arriba
+        caption: H.aviso?.tipo === 'mesActualFalta' ? null : H.subtitulo,
         note: nota ? { text: nota, onClick: ir('#/mas') } : null,
         aviso: { icon: av.icon, text: H.aviso.texto, onClick: abrirAviso },
-        strip: tira, stripOptions: ancho ? { showValues: false, onHero: true, barWidth: 28 } : { showValues: true, onHero: true },
+        strip: tira, stripOptions: tira12 ? { showValues: false, onHero: true, barWidth: 28 } : { showValues: true, onHero: true },
         onOpen: ir(`#/meses/${H.mes}`),
         ariaLabel: `${H.rotulo}: ${ui.srMoney(H.numero)}. ${H.chip.texto}. Tocá para ver el detalle del mes.`,
       });
       // La tira muestra lo que sobra cada mes (no lo que va a la tarjeta): se dice en palabras para que no se confundan los dos números.
       const franja = nodo.querySelector('.mstrip');
       if (franja) {
-        franja.style.marginTop = '6px';
-        franja.before(h('p', { class: 't-small', style: { color: 'var(--hero-ink-2)', marginTop: '16px', fontWeight: '600' } }, 'Lo que te sobra cada mes'));
+        franja.style.marginTop = '.375rem';
+        franja.before(h('p', { class: 't-small', style: { color: 'var(--hero-ink-2)', marginTop: '1rem', fontWeight: '600' } }, 'Lo que te sobra cada mes'));
       }
       return nodo;
     };
@@ -133,7 +139,7 @@ export default {
     };
     const bloqueSupuesto = () => {
       const s = v.salida;
-      return h('div', { role: 'listitem', class: 'stack-1', style: { padding: '2px 16px 12px 74px' } },
+      return h('div', { role: 'listitem', class: 'stack-1', style: { padding: '.125rem 1rem .75rem 4.625rem' } },
         h('p', { class: 't-small muted' }, s.supuesto),
         h('div', { class: 'cluster' },
           s.etiqueta ? ui.chip(s.etiqueta, { tone: 'info', icon: 'info' }) : null,
@@ -196,12 +202,13 @@ export default {
       if (f.estado === 'parcial' && !f.boton) extras.push(ui.btn({ label: 'Anoté otro pago', variant: 'secondary', onClick: () => abrirEditor(ctx, 'cardPayment', f.debtId, {}) }));
       if (f.boton && al) extras.push(ui.btn({ label: f.boton.texto, variant: f.estado === 'viejo' || f.estado === 'sinResumen' ? 'primary' : 'secondary', onClick: al }));
       if (f.fechasResumen) extras.push(h('p', { class: 't-small muted' }, ui.txt(f.fechasResumen)));
-      return h('div', null, fila, h('div', { class: 'stack-2', style: { padding: '2px 16px 14px' } }, extras));
+      return h('div', null, fila, h('div', { class: 'stack-2', style: { padding: '.125rem 1rem .875rem' } }, extras));
     };
     const itemMedeben = (f) => h('div', null,
       ui.row({ icon: 'usuarios', tone: 'info', title: f.titulo, sub: f.detalle, onClick: ir(f.ruta) }),
-      h('div', { class: 'stack-2', style: { padding: '2px 16px 14px' } },
-        ui.btn({ label: f.boton?.texto || 'Anoté que me pagaron', variant: 'secondary', onClick: () => abrirCobro(ctx) })));
+      h('div', { class: 'stack-2', style: { padding: '.125rem 1rem .875rem' } },
+        // mismo tono que "Anoté un gasto": lo que la persona hizo, en primera persona
+        ui.btn({ label: 'Anoté que me pagaron', variant: 'secondary', onClick: () => abrirCobro(ctx) })));
     const itemVence = (f) => {
       if (f.tipo === 'tarjeta') return itemTarjeta(f);
       if (f.tipo === 'medeben') return itemMedeben(f);
@@ -238,7 +245,7 @@ export default {
     const tarjetasSiguientes = () => (v.siguientes || []).map((p) => {
       const [ic, tono] = ICONO_PASO[p.id] || ['destello', 'brand'];
       return ui.card([
-        h('div', { style: { display: 'flex', gap: '12px', alignItems: 'flex-start' } },
+        h('div', { style: { display: 'flex', gap: '.75rem', alignItems: 'flex-start' } },
           ui.iconTile(ic, tono),
           h('div', { class: 'grow stack-1' }, h('p', { class: 'eyebrow' }, p.titulo), h('p', { class: 't-body' }, ui.txt(p.texto)))),
         p.progreso ? h('div', { class: 'stack-1' },
@@ -272,7 +279,6 @@ export default {
         abrirHitos(ctx, nuevos);
       }, 700));
     }
-    void F;
     return limpiar;
   },
 };

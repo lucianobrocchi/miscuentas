@@ -1207,7 +1207,7 @@ test('siguientePaso: máximo 3 tarjetas en orden idea, próxima liberación, tus
   assert.equal(p[0].titulo, 'Una idea para vos');
   assert.equal(p[0].texto, 'Si Hijo te devuelve $50.000 por mes, ahorrás $53.097 de interés.');
   assert.equal(p[0].boton.ruta, '#/deudas/medeben/demo-hijo');
-  assert.equal(p[1].texto, 'Abril 2027: termina la tarjeta y quedan libres $270.000 por mes.');
+  assert.equal(p[1].texto, 'Desde abril 2027 dejás de pagar la tarjeta y quedan libres $270.000 por mes.');
   assert.equal(p[2].texto, 'Faltan 2 datos para que esto sea más exacto: Plan de AFIP y Aguinaldo exacto.');
   assert.deepEqual(p[2].progreso, { hechos: 6, total: 7 });
   assert.ok(p.length <= 3);

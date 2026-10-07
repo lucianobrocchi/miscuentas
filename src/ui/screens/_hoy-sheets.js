@@ -117,7 +117,9 @@ export function abrirMesDificil(ctx, key) {
   const disponibles = o.opciones.filter((x) => x.disponible);
   const noDisponibles = o.opciones.filter((x) => !x.disponible);
   // derive dice "La deuda sube a $X": no siempre es cierto (a veces la deuda baja igual), así que se dice "queda en".
-  const texto = (op) => String(op.texto || '').replace('La deuda sube a ', 'La deuda queda en ');
+  // "Es lo más barato." tampoco se muestra: suena a recomendación de endeudarse y a veces contradice a otra opción ("ahorrás $X de interés").
+  // El costo de cada forma ya está dicho en su propio texto ("te cuesta $X más de interés", "ahorrás $X").
+  const texto = (op) => String(op.texto || '').replace('La deuda sube a ', 'La deuda queda en ').replace(/^Es lo más barato\.\s*/, '');
   let elegido = 'tarjeta';
 
   ctx.sheet.open({
@@ -222,7 +224,7 @@ export function abrirSalida(ctx, { irASupone = false } = {}) {
       const supone = h('div', { class: 'stack-3', id: 'que-supone', tabindex: '-1' },
         h('h3', { class: 't-h2' }, 'Qué supone esta fecha'),
         h('p', { class: 't-body' }, `${s.supuesto}.`),
-        h('ul', { class: 'stack-2' }, (s.queSupone || []).map((x) => h('li', { style: { display: 'flex', gap: '10px', alignItems: 'flex-start' } },
+        h('ul', { class: 'stack-2' }, (s.queSupone || []).map((x) => h('li', { style: { display: 'flex', gap: '.625rem', alignItems: 'flex-start' } },
           h('span', { class: 'brand', 'aria-hidden': 'true' }, '•'),
           h('span', { class: 't-body' }, ui.txt(x))))));
       nodos.push(supone, ui.disclaimer());
@@ -334,7 +336,7 @@ export async function abrirCobro(ctx) {
           icon: 'usuarios', tone: 'info', title: ui.personName(p.nombre, p.index), sub: `Te debe ${F.money(p.balance)}`,
           onClick: async () => { const r = await abrir(p); if (r.saved) { guardado = true; close(); } },
         }))));
-        body.append(h('div', { style: { height: '8px' } }));
+        body.append(h('div', { style: { height: '.5rem' } }));
       },
       onClose: () => resolve({ saved: guardado }),
     });

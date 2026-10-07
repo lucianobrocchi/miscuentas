@@ -173,7 +173,7 @@ export function kv(rows, { cls } = {}) {
 // ------------------------------------------------------------------ filas
 /**
  * Fila de 72px (o 88px con size:'lg'). Si tiene onClick/href es un botón/enlace con chevron.
- * row({ icon:'tarjeta', tone:'warn', title:'Visa Gold · 13 de octubre', sub:'En 9 días', value:amt(270000), valueSub:'mínimo',
+ * row({ icon:'tarjeta', tone:'warn', title:'Visa · 13 de octubre', sub:'En 9 días', value:amt(270000), valueSub:'mínimo',
  *       chip:{label:'Completar', tone:'info'}, onClick, href, size:'md'|'lg', valueClass:'big'|'date', pending:false, ariaLabel })
  * value / title / sub pueden ser string o Node. Meter varias en rowList().
  */

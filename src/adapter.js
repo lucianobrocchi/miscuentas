@@ -252,7 +252,8 @@ export function toEngine(state, today = new Date(), opts = {}) {
   const debts = (state.debts || []).map((d) => {
     const pagado = pagosDelResumen(d, { key: start }).total; // lo pagado este mes que ya bajó el saldo cargado
     const planned = { ...(d.planned || {}) };
-    if (pagado > 0) planned[start] = Math.max(nn(planned[start]), pagado);
+    // un pago menor al mínimo no fija el plan del mes (quedaría por debajo de lo que el resumen pide): sigue el plan normal
+    if (pagado > 0 && pagado + 1 >= nn(d.minPayment)) planned[start] = Math.max(nn(planned[start]), pagado);
     return { ...d, balance: nn(d.balance) + pagado, rate: nn(d.rate), minPayment: nn(d.minPayment), planned };
   });
   if (debts.some((d) => d.balance > 0 && estadoResumen(d, t).viejo)) {

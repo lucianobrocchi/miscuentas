@@ -66,6 +66,8 @@ export default {
     let cuotasF = null;
     let porMesF = null;
     let ultimoMapa = null;
+    let topeClave = null;
+    let topeVal = null;
     let token = 0;
     let gone = false;
 
@@ -157,6 +159,7 @@ export default {
     });
     const mapaEl = h('div', { class: 'stack-1', role: 'group', 'aria-labelledby': 'puedo-mes-l' }, ...mapas);
     const notaMapaEl = h('p', { class: 't-small muted' });
+    const lineaMesEl = h('p', { class: 't-row' });
     const topeEl = h('section', { class: 'card pad-md stack-2', 'aria-label': 'Hasta cuánto podés gastar' });
     const ejemplosEl = h('div', { class: 'stack-2' });
 
@@ -180,6 +183,8 @@ export default {
     }
 
     function pintarTope(tope) {
+      // la línea corta del mes elegido solo aparece cuando ya hay un precio: antes, la pregunta de abajo ya lo explica
+      lineaMesEl.replaceChildren(...[].concat(ui.txt(L.hayPrecio(form) ? (L.lineaMes(tope, { money }) || '') : '')));
       const vt = L.vistaTope(tope, { money });
       topeEl.replaceChildren(...[
         h('h2', { class: 't-h2' }, vt.titulo),
@@ -214,8 +219,8 @@ export default {
       // sticky y no fixed: el contenedor de la pantalla tiene una animación de entrada que se vuelve su bloque contenedor
       style: {
         position: 'sticky', zIndex: '15',
-        bottom: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + var(--s2))',
-        display: 'flex', alignItems: 'center', gap: 'var(--s3)', minHeight: '56px', padding: '0 var(--s4)',
+        bottom: 'calc(var(--tabbar-h) + var(--s2))',
+        display: 'flex', alignItems: 'center', gap: 'var(--s3)', minHeight: '3.5rem', padding: '0 var(--s4)',
         borderRadius: 'var(--r-btn)', border: '2px solid currentColor', boxShadow: 'var(--shadow-sheet)', fontWeight: '800',
       },
       onclick: () => resultEl.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' }),
@@ -234,9 +239,12 @@ export default {
       }
       mostrarBarra();
     }
+    // la barra inferior crece con la letra más grande: se mide la real en vez de suponer su alto
+    const altoTabbar = () => { const t = document.getElementById('tabbar'); const a = t ? t.getBoundingClientRect().height : 0; return a > 8 ? a : 72; };
     function mostrarBarra() {
       const ancho = typeof matchMedia === 'function' && matchMedia('(min-width: 1024px)').matches;
       barraEl.hidden = !(conVeredicto && resultadoAbajo && !ancho && !escribiendo);
+      if (!barraEl.hidden) barraEl.style.bottom = `calc(${Math.ceil(altoTabbar())}px + var(--s2))`;
     }
     const campo = (e) => e.target instanceof Element && e.target.matches('input, textarea');
     root.addEventListener('focusin', (e) => { if (campo(e)) { escribiendo = true; mostrarBarra(); } });
@@ -247,7 +255,8 @@ export default {
         const e = entradas[entradas.length - 1];
         resultadoAbajo = !e.isIntersecting && e.boundingClientRect.top > 0;
         mostrarBarra();
-      }, { rootMargin: '0px 0px -96px 0px' });
+      // el resultado cuenta como "a la vista" recién cuando se ve bastante por encima de la barra inferior y de este botón
+      }, { rootMargin: `0px 0px -${Math.ceil(altoTabbar()) + 152}px 0px` });
     }
 
     function viejo(on) {
@@ -260,7 +269,7 @@ export default {
       pintarBarra(r.vacio ? null : r.v);
       if (r.vacio) { resultEl.replaceChildren(ui.notice({ tone: 'info', title: 'Poné cuánto cuesta', text: 'Y te digo si te alcanza, mes por mes.' })); ejemplosEl.replaceChildren(ejemplos()); anunciar('Poné cuánto cuesta y te digo si te alcanza.'); return; }
       const v = r.v;
-      const texto = v.codigo === 'verde' ? L.textoVerde(mesLargo(form.desde), form.modo) : L.sinTitulo(v.titulo, v.texto);
+      const texto = v.codigo === 'verde' ? L.textoVerde(mesLargo(form.desde), form.modo, { conTarjeta: L.hayTarjetaEnVeredicto(v) }) : L.sinTitulo(v.titulo, v.texto);
       anunciar(`${v.titulo}. ${texto} ${v.siLoNecesitas ? v.siLoNecesitas.texto : ''}`.trim());
       const pie = [];
       if (v.siLoNecesitas) {
@@ -277,11 +286,17 @@ export default {
       vEl.removeAttribute('aria-live');
       const kids = [vEl];
       kids.push(h('div', { class: 'actions' },
-        ui.btn({ label: 'Lo voy a hacer', icon: 'tilde', variant: v.codigo === 'terracota' ? 'secondary' : 'primary', onClick: () => abrirHoja(r) }),
+        ui.btn({ label: 'Lo voy a hacer', icon: 'tilde', variant: v.codigo === 'terracota' ? 'secondary' : 'primary', onClick: () => loVoyAHacer(r) }),
         ui.btn({ label: 'Mejor no', variant: 'text', onClick: limpiar }),
       ));
       kids.push(ui.footnote('Si la anotás, queda como compra planificada y todos tus números la tienen en cuenta.'));
-      if (hero.provisorio) {
+      if (hero.estado === 'parcial') {
+        kids.push(ui.notice({
+          tone: 'info', dashed: true, title: 'Resultado provisorio',
+          text: 'Todavía no cargaste tus gastos: sin ellos, este resultado es más optimista que la realidad.',
+          action: { label: 'Cargar mis gastos', onClick: () => ctx.nav(hero.accion.ruta) },
+        }));
+      } else if (hero.provisorio) {
         kids.push(ui.notice({
           tone: 'info', dashed: true, title: 'Resultado provisorio',
           text: hero.motivos[0] || 'Faltan datos que pueden cambiar este resultado.',
@@ -326,7 +341,10 @@ export default {
         if (!hay) ultimoMapa = null;
         else if (conMapa || !ultimoMapa) ultimoMapa = derive.mapaMeses(state, gasto, today);
         pintarMapa(ultimoMapa);
-        pintarTope(derive.topeSinCosto(state, gasto.desde, { modo: gasto.modo, cuotas: gasto.cuotas, today }));
+        // el tope no depende del precio escrito: solo del mes, de cómo se paga y de las cuotas
+        const kTope = `${gasto.desde}|${gasto.modo}|${gasto.cuotas || 1}`;
+        if (kTope !== topeClave) { topeClave = kTope; topeVal = derive.topeSinCosto(state, gasto.desde, { modo: gasto.modo, cuotas: gasto.cuotas, today }); }
+        pintarTope(topeVal);
       }, 0);
     }
     const calcularConPausa = debounce(() => calcular(), 250);
@@ -345,25 +363,28 @@ export default {
       ctx.rerender();
     }
 
-    function abrirHoja(r) {
+    // "Lo voy a hacer": con "Sin costo" o "Con costo" se anota enseguida (con Deshacer). Con "No conviene" se pregunta una vez,
+    // en la misma hoja, porque esa compra deja un mes con faltante: la decisión es de la persona, sin retos.
+    function loVoyAHacer(r) {
       const v = r.v;
       const g = L.armarGasto(form, start, { paraGuardar: true });
       const queda = L.quedaEnMes(v, g.desde);
       const efecto = queda != null ? `Tu ${mesSolo(g.desde)} queda en ${money(queda)}.` : '';
+      if (v.codigo !== 'terracota') { guardar(g, efecto); return; }
       ctx.sheet.open({
-        title: 'Anotar como compra planificada',
+        title: '¿La anotás igual?',
         render(body) {
           body.append(h('div', { class: 'stack-4' },
-            ui.kv([...L.filasResumenCompra(form, start, { money, mes: mesLargo }), queda != null ? { label: `${MesSolo(g.desde)} queda en`, value: money(queda), strong: true } : null]),
             h('div', null, ui.status(v.codigo)),
-            h('p', { class: 't-body' }, ui.txt(`Queda como una compra planificada, aparte de tus gustos. Se suma a tus gastos desde ${mesLargo(g.desde)} y todos los números la tienen en cuenta.`)),
-            h('p', { class: 't-body' }, 'Cuando la hagas, marcala como hecha: no hace falta anotarla de nuevo como gasto.'),
+            h('p', { class: 't-body' }, ui.txt(L.sinTitulo(v.titulo, v.texto))),
+            ui.kv([...L.filasResumenCompra(form, start, { money, mes: mesLargo }), queda != null ? { label: `${MesSolo(g.desde)} queda en`, value: money(queda), strong: true, tone: 'bad' } : null].filter(Boolean)),
+            h('p', { class: 't-body' }, ui.txt('Queda como una compra planificada. Tus números la tienen en cuenta desde ese mes y vas a ver el faltante en Meses. Cuando la hagas, marcala como hecha: no hace falta anotarla de nuevo como gasto.')),
             ui.disclaimer(),
           ));
         },
         footer: (close) => [
           // no se cierra la hoja acá: ctx.nav la cierra y espera a que el historial termine (si no, el "Atrás" de la hoja deshace la navegación)
-          ui.btn({ label: 'Anotar compra planificada', icon: 'tilde', onClick: () => guardar(g, efecto) }),
+          ui.btn({ label: 'Anotarla igual', icon: 'tilde', variant: 'secondary', onClick: () => guardar(g, efecto) }),
           ui.btn({ label: 'Todavía no', variant: 'text', onClick: () => close() }),
         ],
       });
@@ -403,7 +424,8 @@ export default {
           h('div', { class: 'field-head' }, etiquetaMesEl),
           mapaEl,
           ui.legend([{ code: 'verde' }, { code: 'ambar' }, { code: 'terracota' }]),
-          notaMapaEl)),
+          notaMapaEl,
+          lineaMesEl)),
       { cls: 'puedo-form' });
 
     const lado = [h('div', { class: 'mobile-only', 'aria-hidden': 'true' }), vivoEl, resultEl, topeEl, ejemplosEl, planificadas()];

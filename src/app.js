@@ -370,12 +370,22 @@ function warmCache() {
   });
 }
 
+/** Con letra grande la barra inferior crece: se publica su alto real (--tabbar-real) para que nada quede tapado debajo (contenido, botón flotante, avisos). */
+function watchTabbar() {
+  const inner = document.getElementById('tabbar-in');
+  if (!inner || typeof ResizeObserver === 'undefined') return;
+  const set = () => document.documentElement.style.setProperty('--tabbar-real', `${Math.ceil(inner.getBoundingClientRect().height)}px`);
+  new ResizeObserver(set).observe(inner);
+  set();
+}
+
 function boot() {
   router = createRouter({
     routes: ROUTES, fallback: defaultHash(), onChange: onRoute,
   });
   applyPrefs();
   buildShellNav();
+  watchTabbar();
   paintEye();
   wireGlobalEvents();
   if (!location.hash || location.hash === '#' || location.hash === '#/') history.replaceState(null, '', defaultHash());

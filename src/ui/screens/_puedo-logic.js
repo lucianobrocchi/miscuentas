@@ -141,11 +141,18 @@ export function filasVeredicto(v) {
     .map((f) => ({ label: f.k, value: f.v, strong: /^Interés extra/.test(f.k) }));
 }
 
-/** Frase para el caso "Entra sin problemas" (derive solo trae el título). `mes` = "abril 2027". */
-export function textoVerde(mes, modo = 'una') {
+/**
+ * Frase para el caso "Entra sin problemas" (derive solo trae el título). `mes` = "abril 2027".
+ * Solo habla de la tarjeta si hay una tarjeta con deuda (derive lo marca con la fila "Salís de la tarjeta").
+ */
+export function textoVerde(mes, modo = 'una', { conTarjeta = true } = {}) {
   const cuando = modo === 'una' ? `Si la pagás en ${mes}` : `Si empezás a pagarla en ${mes}`;
+  if (!conTarjeta) return `${cuando}, no te falta plata en ningún mes y no deja ningún mes más ajustado.`;
   return `${cuando}, no cambia cuándo salís de la tarjeta, casi no suma interés y no deja ningún mes más ajustado.`;
 }
+
+/** ¿El veredicto habla de la tarjeta? (derive agrega la fila "Salís de la tarjeta" solo si hay deuda). */
+export const hayTarjetaEnVeredicto = (v) => (v?.filas || []).some((f) => /^Salís de la tarjeta/.test(f.k));
 
 /** Cuánto queda el mes elegido con la compra (de la tira antes/después del veredicto); null si no se sabe. */
 export function quedaEnMes(v, key) {
@@ -182,6 +189,23 @@ export function vistaTope(tope, f) {
     }
   }
   return { titulo: `¿Cuánto puedo gastar en ${tope.mesNombre} sin que me cueste?`, lineas, sugerido, sugeridoConInteres, destacado };
+}
+
+/**
+ * La línea corta que se ve justo debajo del mapa para el mes elegido ("Hasta $X por mes sin problema").
+ * En cuotas y "todos los meses" es por mes; de una vez es el total. Si en ese mes todo lo que se gaste suma interés, lo dice.
+ * @param {object} tope  derive.topeSinCosto(...)
+ * @param {{money:(n:number)=>string}} f
+ * @returns {string|null}
+ */
+export function lineaMes(tope, f) {
+  if (!tope) return null;
+  const { money } = f;
+  if (tope.modo === 'una') {
+    return tope.sinCosto > 0 ? `En ${tope.mesNombre}: hasta ${money(tope.sinCosto)} sin problema.` : `En ${tope.mesNombre}: cualquier gasto suma interés.`;
+  }
+  const x = tope.modo === 'cuotas' ? tope.porMesSinCosto : tope.sinCosto;
+  return x > 0 ? `En ${tope.mesNombre}: hasta ${money(x)} por mes sin problema.` : `En ${tope.mesNombre}: cualquier gasto suma interés.`;
 }
 
 /** Una compra planificada en una línea: "6 cuotas de $100.000 desde abril 2027". f = { money, mes } */

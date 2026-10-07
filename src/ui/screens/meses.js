@@ -8,6 +8,8 @@ import * as L from './_hoy-logic.js';
 import { abrirEditor, abrirMesDificil, filasPendientes } from './_hoy-sheets.js';
 
 const ANCHO = '(min-width: 1024px)';
+// Entre 1024 y 1179px (tablet apaisada) la lista de 5 columnas queda muy angosta para las barras: se le da media pantalla.
+const ANCHO_LISTA = '(min-width: 1180px)';
 const CLAVE_HOJA = 'mes-detalle';
 
 // Mes que se está mirando en la hoja (cambia con los botones < >). La ruta conserva el mes con el que se abrió;
@@ -28,11 +30,20 @@ export default {
     const state = ctx.state;
     const hoyKey = monthKeyOf(t);
     const mq = matchMedia(ANCHO);
+    const mqLista = matchMedia(ANCHO_LISTA);
     const ancho = mq.matches;
     const alCambiarAncho = () => ctx.rerender();
     mq.addEventListener?.('change', alCambiarAncho);
-    const limpiar = () => mq.removeEventListener?.('change', alCambiarAncho);
+    mqLista.addEventListener?.('change', alCambiarAncho);
+    const limpiar = () => {
+      mq.removeEventListener?.('change', alCambiarAncho);
+      mqLista.removeEventListener?.('change', alCambiarAncho);
+      // Al irse de Meses (no al volver a dibujarla por un cambio de estado) se olvida qué mes estaba abierto en la hoja.
+      if (ctx.route()?.name !== 'meses') { mesEnHoja = null; claveDeRutaVista = null; }
+    };
     const ir = (hash) => () => ctx.nav(hash);
+    // En escritorio el detalle es un panel al lado de la lista: cambiar de mes lo reemplaza en el historial (no suma una entrada por cada toque).
+    const irMes = (key) => () => ctx.nav(`#/meses/${key}`, { replace: ancho });
 
     ctx.header({});   // el título "Los próximos meses" lo lleva la página
     const titulo = ui.pageTitle('Los próximos meses', 'Lo que te sobra cada mes, después de pagar todo.');
@@ -68,14 +79,17 @@ export default {
       });
     };
 
+    // Para etiquetas de lectura (aria-label): con el ojo puesto, los montos que trae un texto también se ocultan.
+    const sinMontos = (texto) => (ctx.isPrivate() ? String(texto).replace(/[−-]?\$\s?[\d.]+/g, 'monto oculto') : texto);
+
     const bloqueLineas = (titulo, lineas, total, rotuloTotal, key) => {
       const lista = ui.rowList(lineas.map((l) => ui.row({
         title: l.nombre, sub: l.detalle || undefined, value: ui.amt(l.monto),
         chip: l.estimado ? { label: 'estimado', tone: 'info' } : undefined,
         onClick: () => abrirLinea(l, key),
-        ariaLabel: `${l.nombre}${l.detalle ? ', ' + l.detalle : ''}: ${ui.srMoney(l.monto)}${l.estimado ? ', estimado' : ''}. Tocá para editarlo.`,
+        ariaLabel: `${l.nombre}${l.detalle ? ', ' + sinMontos(l.detalle) : ''}: ${ui.srMoney(l.monto)}${l.estimado ? ', estimado' : ''}. Tocá para editarlo.`,
       })));
-      lista.append(h('div', { role: 'listitem', class: 'between', style: { padding: '14px 16px', borderTop: '1px solid var(--line)', background: 'var(--surface-2)' } },
+      lista.append(h('div', { role: 'listitem', class: 'between', style: { padding: '.875rem 1rem', borderTop: '1px solid var(--line)', background: 'var(--surface-2)' } },
         h('span', { class: 't-row' }, rotuloTotal), h('span', { class: 't-row' }, ui.amt(total))));
       return h('div', { class: 'stack-2' }, ui.sectionTitle(titulo, null, { level: 3 }), lista);
     };
@@ -93,8 +107,8 @@ export default {
         chips: [ui.status(d.code), estimado ? ui.chip('con datos estimados', { tone: 'info' }) : null].filter(Boolean),
       }));
       if (d.eventos.length) {
-        nodos.push(h('ul', { class: 'stack-2' }, d.eventos.map((e) => h('li', { style: { display: 'flex', gap: '10px', alignItems: 'flex-start' } },
-          h('span', { class: 'brand', style: { paddingTop: '2px' } }, ui.icon(L.iconoEvento(e.tipo), { size: 'sm' })),
+        nodos.push(h('ul', { class: 'stack-2' }, d.eventos.map((e) => h('li', { style: { display: 'flex', gap: '.625rem', alignItems: 'flex-start' } },
+          h('span', { class: 'brand', style: { paddingTop: '.125rem' } }, ui.icon(L.iconoEvento(e.tipo), { size: 'sm' })),
           h('span', { class: 't-body' }, ui.txt(e.texto))))));
       }
       nodos.push(bloqueLineas('Entra', d.entra, d.entraTotal, 'Entra en total', key));
@@ -110,7 +124,7 @@ export default {
         nodos.push(ui.link({ label: `Me aumentaron el sueldo desde ${d.mesNombre}`, icon: 'chevron', onClick: () => abrirEditor(ctx, 'aumento', sueldo.id, { desde: key }) }));
       }
       nodos.push(ui.disclaimer());
-      if (panel) nodos.push(navegacion(key, (k) => ctx.nav(`#/meses/${k}`)));
+      if (panel) nodos.push(navegacion(key, (k) => irMes(k)()));
       return h('div', { class: 'stack-4' }, nodos);
     };
 
@@ -123,7 +137,11 @@ export default {
         ariaLabel: `Ver ${lado === 'atras' ? 'el mes anterior' : 'el mes siguiente'}: ${F.monthName(k, { capital: true })}`,
         onClick: () => ir_(k),
       });
-      return h('div', { class: 'between' }, nv.anterior ? boton(nv.anterior, 'atras') : h('span'), nv.siguiente ? boton(nv.siguiente, 'sigue') : h('span'));
+      // Si no entran los dos lado a lado (360px con letra Más grande), el segundo pasa abajo a todo el ancho.
+      const fila = h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '.5rem' } },
+        nv.anterior ? boton(nv.anterior, 'atras') : null, nv.siguiente ? boton(nv.siguiente, 'sigue') : null);
+      fila.querySelectorAll('.btn').forEach((n) => { n.style.flex = '1 1 9rem'; });
+      return fila;
     };
 
     const mostrarHoja = (key) => {
@@ -137,16 +155,27 @@ export default {
       return hoja;
     };
 
+    // Panel pegajoso de escritorio: si el detalle es más alto que la ventana, se desplaza por dentro (si no, el final quedaba fuera de alcance).
+    const panelDetalle = (key) => {
+      const card = ui.card([detalleMes(key, { panel: true })], { cls: 'detail-panel', as: 'div' });
+      card.style.maxHeight = 'calc(100vh - 2rem)';
+      card.style.overflowY = 'auto';
+      card.tabIndex = 0;
+      return card;
+    };
+
     // ------------------------------------------------------------------ lista (4 o 12 meses)
     let modo = ui.pref.get('mesesMode', state.settings?.mesesMode || '4');
     if (modo !== '4' && modo !== '12') modo = '4';
     const region = h('div', { class: 'stack' });
 
     const chipLink = (texto, tono, key) => h('button', {
-      type: 'button', style: { minHeight: '48px', display: 'inline-flex', alignItems: 'center', maxWidth: '100%' }, onclick: ir(`#/meses/${key}`),
+      type: 'button', style: { minHeight: '3rem', display: 'inline-flex', alignItems: 'center', maxWidth: '100%' }, onclick: irMes(key),
     }, ui.chip(texto, { tone: tono, icon: tono === 'bad' ? 'forma-falta' : 'forma-ok' }));
     const resumenes = () => {
-      const l = [M.mejorMes ? chipLink(M.mejorMes.texto, 'ok', M.mejorMes.key) : null, M.mesDificil ? chipLink(M.mesDificil.texto, 'bad', M.mesDificil.key) : null].filter(Boolean);
+      // si todos los meses sobran lo mismo, "Mejor mes" no dice nada
+      const hayVariacion = new Set(M.items.map((it) => Math.round(it.value))).size > 1;
+      const l = [M.mejorMes && hayVariacion ? chipLink(M.mejorMes.texto, 'ok', M.mejorMes.key) : null, M.mesDificil ? chipLink(M.mesDificil.texto, 'bad', M.mesDificil.key) : null].filter(Boolean);
       return l.length ? h('div', { class: 'cluster' }, l) : null;
     };
 
@@ -155,10 +184,33 @@ export default {
       short: it.short,
       value: it.value, state: it.state, estimated: it.estimated,
       event: m === '12' ? it.eventoImporta : it.event, eventIcon: it.eventIcon,
-      selected: it.key === seleccionado, onClick: ir(`#/meses/${it.key}`),
-    })), { mode: m }));
-    // el kit no separa las filas de meses: una línea fina entre una y otra ayuda a leer cada mes por separado
-    const conLineas = (el) => { el.querySelectorAll('.mrow').forEach((n, i) => { if (i) n.style.borderTop = '1px solid var(--line)'; }); return el; };
+      selected: it.key === seleccionado, onClick: irMes(it.key),
+    })), { mode: m }), m, items);
+    // El kit no separa las filas de meses: una línea fina entre una y otra ayuda a leer cada mes por separado.
+    // En 4 meses el kit pone el número y la barra lado a lado (styles/components.css:380, columna "auto"): el cero de la barra
+    // queda en un lugar distinto en cada fila y no se pueden comparar. Acá el número va arriba y la barra debajo, a todo el ancho.
+    const conLineas = (el, m, items) => {
+      el.querySelectorAll('.mrow').forEach((n, i) => {
+        if (i) n.style.borderTop = '1px solid var(--line)';
+        // el kit mete el texto del evento tal cual en la etiqueta de lectura: con el ojo puesto no puede llevar montos
+        const et = n.getAttribute('aria-label');
+        if (et) n.setAttribute('aria-label', sinMontos(et));
+      });
+      // En 12 meses la fila no trae palabra de estado: se suma la forma (círculo, cuadrado, triángulo) para que no dependa solo del color.
+      if (m === '12') {
+        el.querySelectorAll('.mrow').forEach((n, i) => {
+          const val = n.querySelector('.mrow-val');
+          if (!val || !items[i]) return;
+          val.style.display = 'flex'; val.style.alignItems = 'center'; val.style.justifyContent = 'flex-end'; val.style.gap = '.375rem';
+          val.prepend(ui.statusGlyph(items[i].state));
+          // columna del monto de ancho fijo: así el cero de las barras queda en el mismo lugar en todas las filas
+          n.style.gridTemplateColumns = '2.75rem minmax(0, 1fr) 7.25rem 1.75rem';
+          n.style.gap = '.5rem';
+        });
+      }
+      if (m === '4') el.querySelectorAll('.mrow-main').forEach((n) => { n.style.gridTemplateColumns = 'minmax(0, 1fr)'; n.style.gap = '.5rem'; });
+      return el;
+    };
 
     const leyendaPunteada = (items) => (items.some((it) => it.estimated) ? ui.footnote('Las barras con borde punteado llevan un aguinaldo estimado.') : null);
 
@@ -168,7 +220,7 @@ export default {
       return h('div', { class: 'stack-2' },
         ui.sectionTitle('Qué pasa en cada mes', null),
         ui.rowList(con.map((it) => ui.row({
-          icon: it.eventIcon || 'destello', tone: it.state === 'falta' ? 'bad' : 'brand', title: it.name, sub: it.eventoImporta, onClick: ir(`#/meses/${it.key}`),
+          icon: it.eventIcon || 'destello', tone: it.state === 'falta' ? 'bad' : 'brand', title: it.name, sub: it.eventoImporta, onClick: irMes(it.key),
         }))));
     };
 
@@ -185,15 +237,17 @@ export default {
     const pendientes = filasPendientes(ctx, L.pendientesVisibles(D.run(state, { today: t }).eng?.flags?.motivosDetalle, { omitir: ['cobro'] }));
     const limitacion = (D.LIMITACIONES || []).find((x) => /aumentos de sueldo/i.test(x));
     const pies = [limitacion ? ui.footnote(limitacion) : null, ui.disclaimer()].filter(Boolean);
-    const cabecera = [titulo, pendientes, segmento, resumenes()].filter(Boolean);
+    const cabecera = [titulo, segmento, resumenes()].filter(Boolean);
+    const abajo = [pendientes, ...pies].filter(Boolean);   // "Falta un dato" va después de la lista: lo primero que se ve son los meses
 
     // ------------------------------------------------------------------ armado
     if (ancho) {
-      root.append(h('div', { class: 'desk-cols list-detail' },
-        h('div', { class: 'col-main' }, ...cabecera, region, ...pies),
-        h('aside', { class: 'col-side', 'aria-label': 'Detalle del mes' }, ui.card([detalleMes(seleccionado, { panel: true })], { cls: 'detail-panel', as: 'div' }))));
+      const principal = h('div', { class: 'col-main' }, ...cabecera, region, ...abajo);
+      const lateral = h('aside', { class: 'col-side', 'aria-label': 'Detalle del mes' }, panelDetalle(seleccionado));
+      if (!mqLista.matches) { principal.style.gridColumn = '1 / span 6'; lateral.style.gridColumn = '7 / span 6'; }
+      root.append(h('div', { class: 'desk-cols list-detail' }, principal, lateral));
     } else {
-      root.append(...cabecera, region, ...pies);
+      root.append(...cabecera, region, ...abajo);
       if (claveValida) mostrarHoja(mesEnHoja || claveValida);
     }
     return limpiar;
