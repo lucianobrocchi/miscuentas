@@ -124,17 +124,18 @@ export function hojaDecision(ctx, info) {
   return new Promise((resolve) => {
     let elegido = null;
     const fecha = fechaDe(ctx, info.savedAt);
-    const titulos = { primera: 'Ya hay datos en la nube', conflicto: 'Cambiaron los mismos datos en dos celulares', invalido: 'No pudimos leer los datos de la nube' };
+    const titulos = { primera: 'Ya hay datos en la nube', conflicto: 'Hay cambios distintos', invalido: 'No pudimos leer la nube' };
     const intro = {
-      primera: 'Este celular y la nube tienen datos distintos. Elegí con cuáles seguir: los otros se pierden.',
-      conflicto: 'Otra persona cambió lo mismo que vos y no podemos juntarlo solos. Elegí con cuáles seguir: lo que no elijas se pierde.',
+      primera: 'Este celular y la nube tienen datos distintos. Elegí con cuáles seguir.',
+      conflicto: 'Otra persona cambió lo mismo que vos y no podemos juntarlo solos. Elegí con cuáles seguir.',
       invalido: 'Puede ser que se hayan guardado con una versión más nueva de la app. Tus datos de este celular están a salvo.',
     }[info.kind];
-    const lado = (titulo, resumen, consecuencia, boton) => ui.card(h('div', { class: 'stack-3' },
-      h('h3', { class: 't-h2' }, titulo),
-      resumen ? h('p', { class: 't-body' }, `Tiene: ${resumen}.`) : null,
-      h('p', { class: 't-body muted' }, consecuencia),
-      boton), { pad: 'md' });
+    // cada opción: qué tiene, el botón y, debajo, en una frase, qué se pierde si la elegís
+    const lado = (titulo, resumen, boton, consecuencia) => ui.card(h('div', { class: 'stack-2' },
+      h('h3', { class: 't-row' }, titulo),
+      resumen ? h('p', { class: 't-small muted' }, `Tiene: ${resumen}.`) : null,
+      boton,
+      h('p', { class: 't-small' }, consecuencia)), { pad: 'md' });
     const elegir = (v, close) => () => { elegido = v; close(v); };
     ctx.sheet.open({
       title: titulos[info.kind] || titulos.primera,
@@ -143,16 +144,15 @@ export function hojaDecision(ctx, info) {
         const nube = info.remote ? lado(
           'Lo que hay en la nube',
           info.remote.resumen?.texto,
-          info.kind === 'conflicto' ? 'Si elegís esta, lo que cambiaste en este celular desde la última vez que se guardó se pierde.' : 'Si elegís esta, lo que hay en este celular se reemplaza.',
-          ui.btn({ label: info.kind === 'conflicto' ? 'Quedarme con lo de la nube' : fecha ? `Usar los de la nube (guardados el ${fecha})` : 'Usar los de la nube', variant: 'secondary', onClick: elegir('nube', close) })) : null;
+          ui.btn({ label: info.kind === 'conflicto' ? 'Quedarme con lo de la nube' : fecha ? `Usar los de la nube (guardados el ${fecha})` : 'Usar los de la nube', variant: 'secondary', onClick: elegir('nube', close) }),
+          info.kind === 'conflicto' ? 'Se pierde lo que cambiaste en este celular desde la última vez que se guardó.' : 'Se pierde lo que hay ahora en este celular.') : null;
         const mio = lado(
           'Lo que hay en este celular',
           info.local?.resumen?.texto,
-          info.kind === 'conflicto' ? 'Si elegís esta, lo que cambió la otra persona se pierde, para todos los que usan este link.' : 'Si elegís esta, la nube se reemplaza con lo de este celular, para todos los que usan este link.',
-          ui.btn({ label: info.kind === 'conflicto' ? 'Quedarme con lo mío y reemplazar la nube' : 'Usar los de este celular (reemplazan los de la nube)', variant: 'danger', onClick: elegir('mio', close) }));
-        body.append(h('div', { class: 'stack-4' },
+          ui.btn({ label: info.kind === 'conflicto' ? 'Quedarme con lo mío y reemplazar la nube' : 'Usar los de este celular (reemplazan los de la nube)', variant: 'danger', onClick: elegir('mio', close) }),
+          info.kind === 'conflicto' ? 'Se pierde lo que cambió la otra persona, para todos los que usan este link.' : 'Se pierde lo que hay en la nube, para todos los que usan este link.');
+        body.append(h('div', { class: 'stack-3' },
           h('p', { class: 't-body' }, intro),
-          info.motivo && info.kind === 'conflicto' ? ui.footnote(info.motivo) : null,
           nube, mio));
       },
       footer: (close) => [ui.btn({ label: 'Decidir después', variant: 'text', onClick: () => close(null) })],
