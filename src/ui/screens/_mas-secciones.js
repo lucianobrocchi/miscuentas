@@ -44,7 +44,7 @@ function datos(ctx, root) {
       chip: p.estado === 'hecho' ? { label: 'Hecho', tone: 'ok', icon: 'tilde' } : { label: 'Completar', tone: 'info' },
       pending: p.estado !== 'hecho', onClick: () => ctx.nav(p.ruta),
     }))),
-    c.faltan.length ? ui.notice({ tone: 'info', title: 'Lo que falta cambia un poco los números.', text: 'Mientras tanto, algunas cuentas salen como estimadas o provisorias.' }) : null);
+    ...(c.faltan.length ? [ui.notice({ tone: 'info', title: 'Lo que falta cambia un poco los números.', text: 'Mientras tanto, algunas cuentas salen como estimadas o provisorias.' })] : []));
 }
 
 // ============================================================================================ Ingresos

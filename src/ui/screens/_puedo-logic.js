@@ -15,7 +15,7 @@ export const SUGERENCIAS = ['Regalos de Navidad', 'Viaje', 'Electrodoméstico', 
 
 /** Ejemplos tocables para empezar (cifras redondas e ilustrativas). */
 export const EJEMPLOS = [
-  { id: 'heladera', titulo: 'Heladera en 6 cuotas', nombre: 'Heladera', modo: 'cuotas', total: 600000, cuotas: 6 },
+  { id: 'heladera', titulo: 'Heladera en 6 cuotas', nombre: 'Heladera', modo: 'cuotas', total: 480000, cuotas: 6 },
   { id: 'viaje', titulo: 'Un viaje', nombre: 'Viaje', modo: 'una', total: 300000 },
   { id: 'regalo', titulo: 'Un regalo', nombre: 'Regalo', modo: 'una', total: 50000 },
 ];

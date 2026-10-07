@@ -15,6 +15,15 @@ import { h, icon, fmt, announce, lsGet } from './ui/dom.js';
 
 const VERSION = '2.0.0';
 
+// Red de seguridad: append/prepend/replaceChildren convierten null/undefined/false en el TEXTO "null"/"undefined"/"false".
+// Con esto, un `cond ? nodo : null` suelto en cualquier pantalla no escribe basura visible.
+for (const m of ['append', 'prepend', 'replaceChildren']) {
+  for (const P of [Element.prototype, DocumentFragment.prototype]) {
+    const orig = P[m];
+    P[m] = function (...nodes) { return orig.apply(this, nodes.filter((n) => n !== null && n !== undefined && n !== false)); };
+  }
+}
+
 // ---------------------------------------------------------------- tabla de rutas (contrato E)
 // path: ':param' obligatorio · ':param?' opcional. screen = archivo en src/ui/screens/. tab = destino activo de la barra.
 // parent: a dónde vuelve el botón "Volver" de las pantallas hijas (función de la ruta o string).

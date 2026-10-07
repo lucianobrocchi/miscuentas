@@ -80,7 +80,7 @@ test('un ejemplo tocable deja el formulario listo (y con la cuota calculada)', (
   const heladera = L.EJEMPLOS.find((e) => e.id === 'heladera');
   const f = L.formDesdeEjemplo(heladera, START, '2026-12');
   assert.equal(f.modo, 'cuotas');
-  assert.equal(f.cuota, 100000);
+  assert.equal(f.cuota, 80000);
   assert.equal(f.desde, '2026-12');
   assert.equal(L.hayPrecio(f), true);
 });

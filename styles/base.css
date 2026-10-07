@@ -88,6 +88,8 @@ html[data-privacy="on"] .amt > .amt-v,
 html[data-privacy="on"] .pname > .pname-v { display: none; }
 html[data-privacy="on"] .amt::before { content: "\2022\2022\2022\2022" / "monto oculto"; letter-spacing: .08em; }
 html[data-privacy="on"] .pname::before { content: attr(data-alias); }
+/* campos de plata: con el ojo puesto se ven como puntos hasta que la persona toca el campo */
+html[data-privacy="on"] .money:not(.money-plain) .money-in:not(:focus) { -webkit-text-security: disc; text-security: disc; }
 
 /* ---------------- layout: utilidades ---------------- */
 .stack   { display: flex; flex-direction: column; gap: var(--gap); }
