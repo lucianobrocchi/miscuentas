@@ -12,8 +12,12 @@ import * as fields from './ui/fields.js';
 import * as charts from './ui/charts.js';
 import { NAV, buildNav, paintNav as paintNavActive } from './ui/nav.js';
 import { h, icon, fmt, announce, lsGet } from './ui/dom.js';
+import { captureKey, getKey } from './sync.js';
 
 const VERSION = '2.0.0';
+
+// Si el link trae la clave de la nube (#k=...), se guarda y se saca de la dirección ANTES de que arranque el router. Nunca se muestra ni se registra.
+try { captureKey({ location, history, storage: localStorage }); } catch { /* sin almacenamiento: la app anda solo en este celular */ }
 
 // Red de seguridad: append/prepend/replaceChildren convierten null/undefined/false en el TEXTO "null"/"undefined"/"false".
 // Con esto, un `cond ? nodo : null` suelto en cualquier pantalla no escribe basura visible.
@@ -53,6 +57,7 @@ let unmountCurrent = null;
 let currentScreenName = null;
 let headerSet = false;
 let badges = { mas: false, deudas: false };
+let syncHook = null; // sincronizador con la nube (solo si este celular tiene la clave); ver iniciarNube()
 
 const clone = (o) => (typeof structuredClone === 'function' ? structuredClone(o) : JSON.parse(JSON.stringify(o)));
 const hasData = (s) => !!(s && ((s.incomes || []).length || (s.expenses || []).length || (s.debts || []).length || (s.receivables || []).length));
@@ -80,6 +85,7 @@ function applyPrefs() {
 function setPrivacy(on) {
   state = { ...state, settings: { ...state.settings, privacy: !!on } };
   save(state);
+  syncHook?.changed();
   applyPrefs();
   render({ keepScroll: true });
   announce(on ? 'Montos ocultos' : 'Montos visibles');
@@ -97,6 +103,7 @@ function update(fn, { undoLabel, rerender = true, onUndo } = {}) {
   const out = fn(draft);
   state = out && typeof out === 'object' ? out : draft;
   save(state);
+  syncHook?.changed();
   applyPrefs();
   if (rerender) render({ keepScroll: true });
   if (undoLabel) {
@@ -105,6 +112,7 @@ function update(fn, { undoLabel, rerender = true, onUndo } = {}) {
       onAction: () => {
         state = before;
         save(state);
+        syncHook?.changed();
         applyPrefs();
         render({ keepScroll: true });
         onUndo?.();
@@ -113,6 +121,25 @@ function update(fn, { undoLabel, rerender = true, onUndo } = {}) {
     });
   }
   return state;
+}
+
+// ---------------------------------------------------------------- nube (opcional: solo si el link trajo la clave)
+/** Reemplaza el estado por uno que vino de la nube. No es un cambio local: no se vuelve a subir. */
+function applyExternal(next) {
+  state = next;
+  save(state);
+  applyPrefs();
+  const r = router?.current();
+  if (r?.notabs && (state.settings?.onboarded || hasData(state))) nav('#/hoy', { replace: true }); // estaba en la bienvenida y ahora hay datos
+  else render({ keepScroll: true });
+}
+function iniciarNube() {
+  let hay = false;
+  try { hay = !!getKey(localStorage); } catch { /* sin almacenamiento */ }
+  if (!hay) return;
+  import('./ui/_sync-ui.js')
+    .then((m) => { syncHook = m.startSync(ctx, { applyState: applyExternal }); })
+    .catch((e) => console.warn('[Mis Cuentas] la nube no arrancó; la app sigue en este celular', e && e.name));
 }
 
 // ---------------------------------------------------------------- navegación
@@ -168,6 +195,8 @@ const ctx = {
   setPrivacy,
   route: () => router.current(),
   version: VERSION,
+  /** Sincronizador con la nube (null si este celular no tiene la clave). Lo pone _sync-ui.js. */
+  sync: null,
 };
 
 // ---------------------------------------------------------------- barra superior
@@ -400,6 +429,7 @@ function boot() {
   if (!location.hash || location.hash === '#' || location.hash === '#/') history.replaceState(null, '', defaultHash());
   loadLogic().then(() => {
     router.start();
+    iniciarNube();
     registerSW();
     warmCache();
     try { if (matchMedia('(display-mode: standalone)').matches) navigator.storage?.persist?.(); } catch { /* nada */ }

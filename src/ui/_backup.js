@@ -4,6 +4,7 @@
 import { h } from './dom.js';
 import { exportJSON, importJSON, describeState, marcarCopia } from '../store.js';
 import { tieneDatos } from './_ed-logic.js';
+import { avisoCompartido } from './_sync-ui.js';
 
 /** Arma el archivo de la copia (File) a partir del estado actual. */
 export function archivoDeCopia(ctx) {
@@ -107,7 +108,8 @@ export function hojaRestaurar(ctx, { alRestaurar } = {}) {
       cuerpo.replaceChildren(h('div', { class: 'stack-4' },
         h('p', { class: 't-body' }, `Esta copia tiene: ${r.resumen.texto}.${r.fecha ? ` La hiciste el ${ctx.format.longDate(r.fecha, { year: true })}.` : ''}`),
         r.descartados > 0 ? ui.footnote(`Dejamos afuera ${r.descartados} dato${r.descartados === 1 ? '' : 's'} que no se pudieron leer.`) : null,
-        hay ? ui.notice({ tone: 'warn', title: 'Si seguís, esta copia reemplaza lo que tenés ahora.', text: `Ahora hay: ${actual}.` }) : null));
+        hay ? ui.notice({ tone: 'warn', title: 'Si seguís, esta copia reemplaza lo que tenés ahora.', text: `Ahora hay: ${actual}.` }) : null,
+        avisoCompartido(ctx, 'La copia reemplaza lo que hay en la nube, en los celulares de los demás.')));
       hoja.setFooter([
         ui.btn({ label: 'Sí, restaurar esta copia', onClick: async () => {
           const nuevo = r.state;

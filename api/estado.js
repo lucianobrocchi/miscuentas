@@ -90,7 +90,13 @@ export function makeHandler({ blob, env = process.env, now = () => Date.now() })
     };
     try {
       const clave = String(env.MC_CLAVE || '').trim();
-      if (clave.length < MIN_CLAVE || !env.BLOB_READ_WRITE_TOKEN) return send(503, { error: 'sin-nube' });
+      if (clave.length < MIN_CLAVE || !env.BLOB_READ_WRITE_TOKEN) {
+        // Solo nombres de lo que falta configurar (nunca valores): sirve para diagnosticar el panel de Vercel.
+        const falta = [];
+        if (clave.length < MIN_CLAVE) falta.push('MC_CLAVE');
+        if (!env.BLOB_READ_WRITE_TOKEN) falta.push('BLOB_READ_WRITE_TOKEN');
+        return send(503, { error: 'sin-nube', falta });
+      }
       if (!claveCorrecta(req.headers?.authorization ?? req.headers?.Authorization, clave)) return send(404, { error: 'no-encontrado' });
       const metodo = String(req.method || '').toUpperCase();
       if (metodo !== 'GET' && metodo !== 'PUT') return send(405, { error: 'metodo' }, { Allow: 'GET, PUT' });

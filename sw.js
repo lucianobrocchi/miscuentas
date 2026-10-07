@@ -1,7 +1,7 @@
 // sw.js · Mis Cuentas 2.0. Funciona sin internet: precachea TODO lo que la app necesita.
 // Estrategia: red primero con caída al cache (así siempre ves la versión más nueva si hay señal)
 // y cache primero para fuentes e íconos (no cambian). SUBIR el número de CACHE en cada versión nueva.
-const CACHE = 'miscuentas-v2';
+const CACHE = 'miscuentas-v3';
 
 // Sin estos archivos la app no puede abrir: si alguno falla, la instalación falla y se reintenta.
 const CORE = [
@@ -9,12 +9,12 @@ const CORE = [
   'styles/tokens.css', 'styles/base.css', 'styles/components.css', 'styles/screens.css',
   'fonts/Inter-var-latin.woff2',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
-  'src/app.js', 'src/engine.js', 'src/calendar.js', 'src/store.js', 'src/format.js', 'src/adapter.js', 'src/derive.js', 'src/demo.js',
+  'src/app.js', 'src/engine.js', 'src/calendar.js', 'src/store.js', 'src/sync.js', 'src/format.js', 'src/adapter.js', 'src/derive.js', 'src/demo.js',
   'src/ui/dom.js', 'src/ui/nav.js', 'src/ui/router.js', 'src/ui/sheet.js', 'src/ui/toast.js', 'src/ui/components.js', 'src/ui/charts.js', 'src/ui/fields.js',
 ];
 // Pantallas y editores: se precachean si existen (otros archivos de la app se escriben en paralelo).
 const SCREENS = [
-  'src/ui/editors.js', 'src/ui/_ed-core.js', 'src/ui/_ed-forms.js', 'src/ui/_ed-logic.js', 'src/ui/_ed-style.js', 'src/ui/_install.js', 'src/ui/_backup.js', 'src/ui/screens/_mas-secciones.js',   // editores y su apoyo (S4)
+  'src/ui/editors.js', 'src/ui/_ed-core.js', 'src/ui/_ed-forms.js', 'src/ui/_ed-logic.js', 'src/ui/_ed-style.js', 'src/ui/_install.js', 'src/ui/_backup.js', 'src/ui/_sync-ui.js', 'src/ui/screens/_mas-secciones.js',   // editores y su apoyo (S4)
   'src/ui/screens/hoy.js', 'src/ui/screens/meses.js', 'src/ui/screens/puedo.js', 'src/ui/screens/deudas.js',
   'src/ui/screens/_hoy-logic.js', 'src/ui/screens/_hoy-sheets.js',   // módulos de apoyo de Hoy y Meses: sin ellos, sin internet esas pantallas no abren
   'src/ui/screens/tarjeta.js', 'src/ui/screens/medeben.js', 'src/ui/screens/mas.js',
@@ -82,5 +82,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.includes('/dev/')) return; // la galería de componentes no se guarda
+  if (url.pathname.includes('/api/')) return; // la nube va siempre por la red: nunca se cachea (los datos de la familia no se guardan en el cache del navegador)
   event.respondWith((STATIC_RE.test(url.pathname) && !url.pathname.endsWith('manifest.json') ? cacheFirst : networkFirst)(request));
 });

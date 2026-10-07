@@ -7,6 +7,7 @@ import { filas } from '../_ed-core.js';
 import { estadoVacioConservando } from '../_ed-logic.js';
 import { SECCIONES, RENDER } from './_mas-secciones.js';
 import { diasDesdeCopia } from '../../store.js';
+import { lineaNube, dondeEstanLosDatos, avisoCompartido } from '../_sync-ui.js';
 import { monthName, haceTiempo } from '../../format.js';
 
 export default {
@@ -47,6 +48,7 @@ function indice(ctx, root) {
       h('div', { class: 'grow stack-1' },
         h('h2', { class: 't-h2' }, 'Tus datos'),
         h('p', { class: 't-body muted' }, c.completo ? 'Está todo cargado.' : `Cargaste ${c.hechos} de 7. Cuanto más completo, más exactos los números.`))),
+    lineaNube(ctx),
     pendientes.length ? h('div', { class: 'mas-chips' }, ...pendientes) : null,
     ui.link({ label: 'Ver todos los pasos', onClick: () => ctx.nav('#/mas/datos'), icon: 'chevron' }),
   ], { cls: 'stack-3' });
@@ -86,7 +88,8 @@ function indice(ctx, root) {
       body.append(h('div', { class: 'stack-3' },
         h('div', { class: 'icon-tile tone-bg-bad' }, ui.icon('papelera')),
         h('p', { class: 't-body' }, 'Se borra todo lo que cargaste en este celular: ingresos, gastos, deudas y lo que te deben. Solo lo podés recuperar con una copia de seguridad.'),
-        h('p', { class: 't-body' }, 'Si querés, primero mandate una copia.')));
+        h('p', { class: 't-body' }, 'Si querés, primero mandate una copia.'),
+        avisoCompartido(ctx, 'Se borra también en la nube y en los celulares de los demás, no solo en este.')));
     },
     footer: (close) => [
       ui.btn({ label: 'Sí, borrar todo', variant: 'danger', onClick: async () => {
@@ -102,5 +105,5 @@ function indice(ctx, root) {
     tarjetaDatos,
     lista,
     ui.btn({ label: 'Borrar todo', variant: 'text', icon: 'papelera', cls: 'btn-borrar mas-borrar', onClick: borrarTodo }),
-    ui.footnote('Tus datos están solo en este celular. Versión 2.0.'));
+    ui.footnote(`${dondeEstanLosDatos(ctx)} Versión 2.0.`));
 }

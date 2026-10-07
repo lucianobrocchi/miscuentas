@@ -15,8 +15,8 @@ export function encabezado(state, today) {
 }
 
 /** Pie de Hoy: "Tus datos están solo en este celular. Última copia: hace 3 días." */
-export function textoPie(state, today, donde = 'celular') {
-  const base = `Tus datos están solo en este ${donde}.`;
+export function textoPie(state, today, donde = 'celular', enNube = false) {
+  const base = enNube ? `Tus datos se guardan en este ${donde} y en la nube.` : `Tus datos están solo en este ${donde}.`;
   const cuando = haceTiempo(state?.settings?.lastBackupAt, today);
   return cuando ? `${base} Última copia: ${cuando}.` : `${base} Todavía no hiciste una copia de seguridad.`;
 }

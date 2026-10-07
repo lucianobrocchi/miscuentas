@@ -114,11 +114,18 @@ test('la clave por query string no vale (las URLs se loguean)', async () => {
 });
 
 test('sin MC_CLAVE, con clave demasiado corta o sin token del Blob: 503 sin-nube', async () => {
-  for (const env of [{ BLOB_READ_WRITE_TOKEN: 't' }, { MC_CLAVE: CLAVE }, { MC_CLAVE: '1234', BLOB_READ_WRITE_TOKEN: 't' }, {}]) {
+  const casos = [
+    [{ BLOB_READ_WRITE_TOKEN: 't' }, ['MC_CLAVE']],
+    [{ MC_CLAVE: CLAVE }, ['BLOB_READ_WRITE_TOKEN']],
+    [{ MC_CLAVE: '1234', BLOB_READ_WRITE_TOKEN: 't' }, ['MC_CLAVE']],
+    [{}, ['MC_CLAVE', 'BLOB_READ_WRITE_TOKEN']],
+  ];
+  for (const [env, falta] of casos) {
     const { call } = nuevo(env);
     const r = await call({ headers: auth });
     assert.equal(r.statusCode, 503);
-    assert.deepEqual(r.json, { error: 'sin-nube' });
+    assert.deepEqual(r.json, { error: 'sin-nube', falta }); // solo nombres, nunca valores
+    assert.ok(!JSON.stringify(r.json).includes(CLAVE));
     assert.equal(r.headers['cache-control'], 'no-store');
   }
 });

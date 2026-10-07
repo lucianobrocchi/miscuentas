@@ -8,6 +8,7 @@ import * as FM from '../_ed-forms.js';
 import * as L from '../_ed-logic.js';
 import { mandarCopia, descargarCopia, hojaRestaurar } from '../_backup.js';
 import { hojaInstalar, detectarEntorno } from '../_install.js';
+import { tarjetaNube } from '../_sync-ui.js';
 import { diasDesdeCopia } from '../../store.js';
 import { monthName, haceTiempo } from '../../format.js';
 
@@ -44,7 +45,8 @@ function datos(ctx, root) {
       chip: p.estado === 'hecho' ? { label: 'Hecho', tone: 'ok', icon: 'tilde' } : { label: 'Completar', tone: 'info' },
       pending: p.estado !== 'hecho', onClick: () => ctx.nav(p.ruta),
     }))),
-    ...(c.faltan.length ? [ui.notice({ tone: 'info', title: 'Lo que falta cambia un poco los números.', text: 'Mientras tanto, algunas cuentas salen como estimadas o provisorias.' })] : []));
+    ...(c.faltan.length ? [ui.notice({ tone: 'info', title: 'Lo que falta cambia un poco los números.', text: 'Mientras tanto, algunas cuentas salen como estimadas o provisorias.' })] : []),
+    tarjetaNube(ctx));
 }
 
 // ============================================================================================ Ingresos

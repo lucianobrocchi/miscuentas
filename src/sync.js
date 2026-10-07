@@ -16,6 +16,7 @@ export const TIMEOUT_MS = 20000;
 /** Preferencias de este dispositivo: nunca suben ni se pisan con lo de la nube. */
 export const LOCAL_SETTINGS = ['theme', 'fontSize', 'privacy', 'mesesMode', 'lastBackupAt', 'onboardingStep', 'demo'];
 const LISTAS = ['people', 'incomes', 'expenses', 'installments', 'debts', 'receivables', 'spent', 'plannedPurchases', 'pending'];
+const ETIQUETA = { people: 'las personas', incomes: 'los ingresos', expenses: 'los gastos', installments: 'las cuotas', debts: 'las tarjetas y deudas', receivables: 'lo que te deben', spent: 'los gastos del día', plannedPurchases: 'las compras planificadas', pending: 'los pendientes' };
 const LISTAS_CON_PERSONAS = ['incomes', 'expenses', 'installments', 'debts', 'receivables']; // referencian personas por nombre o id
 
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -126,7 +127,7 @@ function indexar(lista) {
 
 function juntarLista(nombre, b, l, r) {
   const bm = indexar(b), lm = indexar(l), rm = indexar(r);
-  if (!bm || !lm || !rm) return { ok: false, motivo: `Hay datos repetidos o sin identificar en ${nombre}.` };
+  if (!bm || !lm || !rm) return { ok: false, motivo: `Hay datos repetidos o sin identificar en ${ETIQUETA[nombre] || nombre}.` };
   const out = new Map();
   let tocoLocal = false;
   let tocoRemoto = false;
@@ -138,7 +139,7 @@ function juntarLista(nombre, b, l, r) {
     else if (lc && !rc) { res = lv; tocoLocal = true; }
     else if (!lc && rc) { res = rv; tocoRemoto = true; }
     else if (igual(lv, rv)) { res = rv; tocoLocal = true; tocoRemoto = true; }
-    else return { ok: false, motivo: `Los dos cambiaron el mismo dato de ${nombre}.` };
+    else return { ok: false, motivo: `Los dos cambiaron el mismo dato de ${ETIQUETA[nombre] || nombre}.` };
     if (res !== undefined) out.set(id, res);
   }
   const lista = [];
@@ -272,6 +273,7 @@ export function createSync(opts) {
       const res = await Promise.race([
         fetchFn(endpoint + query, {
           method, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctl?.signal,
+          keepalive: !!body && JSON.stringify(body).length < 60000, // para que un guardado en marcha sobreviva si la app pasa a segundo plano
           headers: { Authorization: `Bearer ${key}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
           body: body ? JSON.stringify(body) : undefined,
         }),

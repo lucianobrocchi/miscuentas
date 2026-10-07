@@ -254,7 +254,7 @@ export default {
         ui.btn({ label: p.boton.texto, variant: 'secondary', onClick: ir(p.boton.ruta) }),
       ], { cls: 'next-card' });
     });
-    const pie = () => ui.footnote(L.textoPie(state, t, ancho ? 'equipo' : 'celular'));
+    const pie = () => ui.footnote(L.textoPie(state, t, ancho ? 'equipo' : 'celular', !!ctx.sync?.hasKey?.()));
 
     // ------------------------------------------------------------------ armado
     const nodos = (...l) => l.flat().filter(Boolean);
