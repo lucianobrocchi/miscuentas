@@ -6,5 +6,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "start": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2"
   }
 }

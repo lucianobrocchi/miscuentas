@@ -568,7 +568,8 @@ dialog.sheet.closing .sheet-panel { animation: sheet-down 200ms ease-in forwards
 .toast-msg { font-size: var(--t-small); line-height: 1.375; font-weight: 600; padding-block: 6px; }
 .toast-action { min-height: 48px; padding: 0 var(--s4); border-radius: var(--r-icon); color: var(--toast-link); font-weight: 800; font-size: var(--t-small); flex: none; }
 .toast-action:hover { text-decoration: underline; text-underline-offset: 3px; }
-body[data-notabs] .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); }
+/* sin barra inferior (armado, bienvenida): el pie con "Seguir" queda abajo, así que el aviso se apoya arriba de él y no lo tapa */
+body[data-notabs] .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 11rem); }
 @media (min-width: 1024px) { .toast { bottom: var(--s6); left: calc(50% + 124px); } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes toast-out { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, 8px); } }
