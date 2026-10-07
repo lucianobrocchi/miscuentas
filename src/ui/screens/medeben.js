@@ -198,7 +198,7 @@ function bloqueCuenta(ctx, persona, index, cuenta, varias) {
     const una = e2 && e2.escenarios.find((x) => x.monto === m);
     if (!una) { resultado.replaceChildren(h('p', { class: 't-body' }, 'Con ese monto te lo devolvería de una vez.')); return; }
     const o = L.opcionesCuota({ ...e2, escenarios: [una] }, F)[0];
-    resultado.replaceChildren(h('p', { class: 't-body' }, ui.txt(o.sub)), una.advertencia ? ui.notice({ tone: 'warn', title: una.advertencia }) : null);
+    resultado.replaceChildren(...[h('p', { class: 't-body' }, ui.txt(o.sub)), una.advertencia ? ui.notice({ tone: 'warn', title: una.advertencia }) : null].filter(Boolean));
   };
   const guardarOtra = () => {
     if (!(montoOtro > 0)) { campoOtro.setError('Poné cuánto te devolvería por mes.'); campoOtro.focus(); return; }

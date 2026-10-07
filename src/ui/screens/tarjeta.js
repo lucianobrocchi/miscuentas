@@ -148,11 +148,11 @@ export default {
         const e2 = D.escenariosPago(state, t, { debtId: debt.id, otro: m });
         const o = e2.opciones.find((x) => x.id === 'otro');
         if (!o) { resultado.replaceChildren(); return; }
-        resultado.replaceChildren(
+        resultado.replaceChildren(...[
           o.paidOn
             ? ui.kv([{ label: 'Salís de la tarjeta', value: o.salidaTexto, strong: true }, { label: 'Interés total', value: ui.amt(o.totalInterest) }])
             : h('p', { class: 't-body' }, 'Con ese monto la tarjeta no se termina en los próximos años.'),
-          o.aviso ? ui.notice({ tone: 'warn', title: o.aviso }) : null);
+          o.aviso ? ui.notice({ tone: 'warn', title: o.aviso }) : null].filter(Boolean));
       };
       const guardarOtro = () => {
         if (!(montoEvaluado > 0)) { campoOtro.setError('Poné cuánto vas a pagar.'); campoOtro.focus(); return; }
