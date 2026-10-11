@@ -236,3 +236,16 @@ test('almacenamiento conectado con OIDC (solo BLOB_STORE_ID, sin token clásico)
   assert.equal(r.statusCode, 200);
   assert.equal(r.json.rev, 0);
 });
+
+test('clave con ñ: se reconoce codificada, en Latin-1 y en UTF-8 leída como Latin-1; una distinta no', async () => {
+  const conEnie = 'unaclave-con-ñandú';
+  const { call } = nuevo({ MC_CLAVE: conEnie, BLOB_STORE_ID: 'store_x' });
+  for (const enviada of [encodeURIComponent(conEnie), conEnie, Buffer.from(conEnie, 'utf8').toString('latin1')]) {
+    const r = await call({ headers: { authorization: `Bearer ${enviada}` } });
+    assert.equal(r.statusCode, 200, enviada);
+  }
+  const mala = await call({ headers: { authorization: `Bearer ${encodeURIComponent('unaclave-con-nandu')}` } });
+  assert.equal(mala.statusCode, 404);
+  const nfd = await call({ headers: { authorization: `Bearer ${encodeURIComponent(conEnie.normalize('NFD'))}` } });
+  assert.equal(nfd.statusCode, 200);
+});

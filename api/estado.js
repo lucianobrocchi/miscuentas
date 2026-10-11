@@ -26,12 +26,23 @@ const LISTAS = ['people', 'incomes', 'expenses', 'installments', 'debts', 'recei
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const sha = (s) => createHash('sha256').update(String(s)).digest();
 
-/** Comparación en tiempo constante: se comparan hashes (misma longitud), así no importa cuánto de la clave coincide. */
+/**
+ * Comparación en tiempo constante: se comparan hashes (misma longitud), así no importa cuánto de la clave coincide.
+ * La clave puede traer letras como la ñ o acentos, y según quién la mande llega distinta: la app la manda codificada
+ * (encodeURIComponent), un navegador la puede mandar en Latin-1 y curl en UTF-8 (que Node lee como Latin-1).
+ * Se prueban esas formas, todas contra la misma clave, y se normaliza a NFC (la "ñ" puede escribirse de dos maneras).
+ */
 export function claveCorrecta(header, clave) {
   const m = /^Bearer (.+)$/.exec(typeof header === 'string' ? header : '');
   const dada = m ? m[1].trim() : '';
-  const igual = timingSafeEqual(sha(dada), sha(clave));
-  return Boolean(m) && igual;
+  const nfc = (x) => String(x).normalize('NFC');
+  const candidatas = [dada];
+  try { candidatas.push(decodeURIComponent(dada)); } catch { candidatas.push(dada); }
+  candidatas.push(Buffer.from(dada, 'latin1').toString('utf8'));
+  const objetivo = sha(nfc(clave));
+  let igual = false;
+  for (const c of candidatas) igual = timingSafeEqual(sha(nfc(c)), objetivo) || igual; // siempre se comparan todas
+  return Boolean(m) && dada.length > 0 && igual;
 }
 
 /** Validación mínima: un objeto con settings y las listas básicas como arrays. El modelo completo lo valida el cliente. */

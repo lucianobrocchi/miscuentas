@@ -289,7 +289,7 @@ export function createSync(opts) {
         fetchFn(endpoint + query, {
           method, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctl?.signal,
           keepalive: !!body && JSON.stringify(body).length < 60000, // para que un guardado en marcha sobreviva si la app pasa a segundo plano
-          headers: { Authorization: `Bearer ${key}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+          headers: { Authorization: `Bearer ${encodeURIComponent(key)}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
           body: body ? JSON.stringify(body) : undefined,
         }),
         tiempo,
