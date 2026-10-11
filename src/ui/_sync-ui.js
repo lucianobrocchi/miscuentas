@@ -227,7 +227,7 @@ export function startSync(ctx, { applyState }) {
     today: () => ctx.today(),
     choose: (info) => hojaDecision(ctx, info),
     conflict: (info) => hojaDecision(ctx, info),
-    notify: (kind) => { const a = AVISOS[kind]; if (a) ctx.toast(a[0], { duration: a[1] }); },
+    notify: (kind) => { if (kind === 'actualizado' && ctx.ultimoCambioVisible === false) return; const a = AVISOS[kind]; if (a) ctx.toast(a[0], { duration: a[1] }); },
     canApply: () => !ctx.sheet.isOpen() && !escribiendo() && !document.querySelector('#toast-root .toast-action'), // ni encima de un "Deshacer" a la vista
     isVisible: () => document.visibilityState === 'visible',
     onStatus: pintarTodo,

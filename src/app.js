@@ -62,6 +62,9 @@ let syncHook = null; // sincronizador con la nube (solo si este celular tiene la
 const clone = (o) => (typeof structuredClone === 'function' ? structuredClone(o) : JSON.parse(JSON.stringify(o)));
 const hasData = (s) => !!(s && ((s.incomes || []).length || (s.expenses || []).length || (s.debts || []).length || (s.receivables || []).length));
 const defaultHash = () => (state.settings?.onboarded || hasData(state) ? '#/hoy' : '#/bienvenida');
+// JSON con las claves ordenadas: dos estados con los mismos datos dan el mismo texto aunque el orden de las claves cambie.
+const estable = (v) => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x));
+let esperandoNube = null; // función que arranca el router cuando llegan los datos de la nube (o se cansa de esperar)
 
 // ---------------------------------------------------------------- preferencias visibles (tema, letra, privacidad)
 const metaOrig = new Map();
@@ -126,12 +129,24 @@ function update(fn, { undoLabel, rerender = true, onUndo } = {}) {
 // ---------------------------------------------------------------- nube (opcional: solo si el link trajo la clave)
 /** Reemplaza el estado por uno que vino de la nube. No es un cambio local: no se vuelve a subir. */
 function applyExternal(next) {
+  let igual = false;
+  try {
+    // "seen" son marcas internas (qué mes ya se mostró, qué aviso ya se vio): no cambian nada de lo que se ve
+    const sinMarcas = (x) => estable({ ...x, seen: undefined });
+    igual = sinMarcas(next) === sinMarcas(state);
+  } catch { /* si no se puede comparar, se redibuja */ }
+  ctx.ultimoCambioVisible = !igual; // _sync-ui.js no avisa "Se actualizaron los datos" si no cambió nada visible
   state = next;
   save(state);
   applyPrefs();
+  if (esperandoNube) { history.replaceState(null, '', hasData(state) || state.settings?.onboarded ? '#/hoy' : '#/bienvenida'); esperandoNube(); return; }
+  if (igual) return; // llegó lo mismo que ya se ve: nada que redibujar (antes esto hacía "titilar" la pantalla)
   const r = router?.current();
-  if (r?.notabs && (state.settings?.onboarded || hasData(state))) nav('#/hoy', { replace: true }); // estaba en la bienvenida y ahora hay datos
-  else render({ keepScroll: true });
+  if (r?.notabs && (state.settings?.onboarded || hasData(state))) { nav('#/hoy', { replace: true }); return; } // estaba en la bienvenida y ahora hay datos
+  // Datos nuevos de otro celular: se actualiza la pantalla SIN repetir las animaciones de entrada (barras, deslizamiento).
+  const root = document.documentElement;
+  root.dataset.quiet = '1';
+  Promise.resolve(render({ keepScroll: true })).finally(() => setTimeout(() => { delete root.dataset.quiet; }, 700));
 }
 function iniciarNube() {
   let hay = false;
@@ -417,6 +432,26 @@ function watchTabbar() {
   set();
 }
 
+/** Primera vez en este celular con el link de la familia: se espera a la nube (máx. 6 s) antes de mostrar la bienvenida. */
+function esperarNube() {
+  const view = document.getElementById('view');
+  document.body.toggleAttribute('data-notabs', true);
+  view.replaceChildren(h('div', { class: 'screen' }, ui.empty({ title: 'Trayendo tus datos…', text: 'Un momento: estamos buscando lo que cargó tu familia.', art: 'obra' })));
+  let listo = false;
+  const fin = () => {
+    if (listo) return;
+    listo = true;
+    esperandoNube = null;
+    clearInterval(mirar);
+    clearTimeout(tope);
+    router.start();
+  };
+  esperandoNube = fin;
+  // si la nube contesta sin datos (vacía, sin conexión, sin configurar), no hay nada que esperar
+  const mirar = setInterval(() => { const c = ctx.sync?.status?.().code; if (c && c !== 'inicio' && c !== 'guardando') fin(); }, 250);
+  const tope = setTimeout(fin, 6000);
+}
+
 function boot() {
   router = createRouter({
     routes: ROUTES, fallback: defaultHash(), onChange: onRoute,
@@ -428,7 +463,10 @@ function boot() {
   wireGlobalEvents();
   if (!location.hash || location.hash === '#' || location.hash === '#/') history.replaceState(null, '', defaultHash());
   loadLogic().then(() => {
-    router.start();
+    let tieneClave = false;
+    try { tieneClave = !!getKey(localStorage); } catch { /* sin almacenamiento */ }
+    if (tieneClave && !hasData(state)) esperarNube();
+    else router.start();
     iniciarNube();
     registerSW();
     warmCache();

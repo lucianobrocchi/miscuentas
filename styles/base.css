@@ -250,3 +250,6 @@ html[data-fontsize="masgrande"] .tab .lbl { white-space: normal; }
   #view > .screen { animation: fade-only 80ms linear both; }
   @keyframes fade-only { from { opacity: 0; } to { opacity: 1; } }
 }
+
+/* Actualización silenciosa (llegaron datos de otro celular): sin animaciones de entrada, cada cosa queda en su lugar final. */
+:root[data-quiet] #view *, :root[data-quiet] #view > .screen { animation-duration: 1ms !important; animation-delay: 0s !important; transition: none !important; }
