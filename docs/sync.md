@@ -16,7 +16,7 @@ Si el link no trae la clave (o el servidor no está configurado), la app funcion
 
 ## Lo que tenés que crear en Vercel (una sola vez)
 
-1. **Blob privado.** En el panel de Vercel: proyecto `miscuentas` > Storage > Create > Blob > acceso **Private** > conectarlo al proyecto. Eso agrega solo la variable `BLOB_READ_WRITE_TOKEN`.
+1. **Blob privado.** En el panel de Vercel: proyecto `miscuentas` > Storage > Create > Blob > acceso **Private** > conectarlo al proyecto. Al conectarlo, Vercel agrega `BLOB_STORE_ID` y las credenciales OIDC automáticas (o, en conexiones viejas, `BLOB_READ_WRITE_TOKEN`). Cualquiera de las dos sirve.
 2. **Variable `MC_CLAVE`.** Proyecto > Settings > Environment Variables > nombre `MC_CLAVE`, el valor es la clave de la familia, en Production (y en Preview si querés probar). Mínimo 8 caracteres, sin espacios. Conviene que sea larga y al azar. Una forma de generarla en tu compu:
    ```
    node -e "console.log(require('crypto').randomBytes(18).toString('base64url'))"
@@ -69,7 +69,7 @@ Siempre con `Authorization: Bearer <clave>`. Respuestas con `Cache-Control: no-s
 | cuerpo de más de 1 MB | `413` |
 | `state` sin `settings` o con listas que no son arrays; `baseRev` no entero | `400` |
 | clave ausente o incorrecta | `404` genérico |
-| sin `MC_CLAVE`, sin `BLOB_READ_WRITE_TOKEN` o clave de menos de 8 caracteres | `503 { error: 'sin-nube', falta: [...] }` (`falta` lista solo los nombres de las variables que faltan, nunca valores) |
+| sin `MC_CLAVE`, sin almacenamiento conectado (`BLOB_STORE_ID` o `BLOB_READ_WRITE_TOKEN`) o clave de menos de 8 caracteres | `503 { error: 'sin-nube', falta: [...] }` (`falta` lista solo los nombres de las variables que faltan, nunca valores) |
 | falla del almacenamiento | `502 { error: 'nube' }` (el mensaje real no se devuelve ni se registra) |
 
 El archivo es `miscuentas/estado.json` en un Blob privado. La clave se compara en tiempo constante (hashes SHA-256 con `timingSafeEqual`). Para que dos guardados simultáneos no se pisen, la lectura va sin cache (`useCache: false`) y la escritura usa `ifMatch` con el ETag leído: si otro escribió en el medio, el Blob la rechaza y la respuesta es `409`.

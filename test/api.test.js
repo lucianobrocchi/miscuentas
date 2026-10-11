@@ -116,9 +116,10 @@ test('la clave por query string no vale (las URLs se loguean)', async () => {
 test('sin MC_CLAVE, con clave demasiado corta o sin token del Blob: 503 sin-nube', async () => {
   const casos = [
     [{ BLOB_READ_WRITE_TOKEN: 't' }, ['MC_CLAVE']],
-    [{ MC_CLAVE: CLAVE }, ['BLOB_READ_WRITE_TOKEN']],
+    [{ BLOB_STORE_ID: 'store_x' }, ['MC_CLAVE']],
+    [{ MC_CLAVE: CLAVE }, ['BLOB']],
     [{ MC_CLAVE: '1234', BLOB_READ_WRITE_TOKEN: 't' }, ['MC_CLAVE']],
-    [{}, ['MC_CLAVE', 'BLOB_READ_WRITE_TOKEN']],
+    [{}, ['MC_CLAVE', 'BLOB']],
   ];
   for (const [env, falta] of casos) {
     const { call } = nuevo(env);
@@ -227,4 +228,11 @@ test('un documento guardado roto da 502 y no se pisa', async () => {
     assert.equal((await put(call, 0, estado())).statusCode, 502);
     assert.equal(blob.files.get(BLOB_PATH).body, 'no es json');
   } finally { console.error = mudo; }
+});
+
+test('almacenamiento conectado con OIDC (solo BLOB_STORE_ID, sin token clásico): funciona', async () => {
+  const { call } = nuevo({ MC_CLAVE: CLAVE, BLOB_STORE_ID: 'store_x' });
+  const r = await call({ headers: auth });
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.json.rev, 0);
 });

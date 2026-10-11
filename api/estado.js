@@ -5,7 +5,8 @@
 //   PUT { baseRev, state } -> 200 { rev, savedAt }      si baseRev === rev actual (guarda y sube rev en 1)
 //                          -> 409 { rev, savedAt, state } si no (devuelve el estado actual)
 // La clave compartida va en la variable de entorno MC_CLAVE y llega en el header "Authorization: Bearer <clave>".
-// Clave ausente o incorrecta: 404 genérico (no se revela que esto existe). Sin MC_CLAVE o sin BLOB_READ_WRITE_TOKEN: 503 { error: 'sin-nube' }.
+// Clave ausente o incorrecta: 404 genérico (no se revela que esto existe). Sin MC_CLAVE o sin almacenamiento conectado: 503 { error: 'sin-nube' }.
+// El almacenamiento se reconoce por BLOB_STORE_ID (conexión nueva de Vercel, con credenciales OIDC automáticas) o por BLOB_READ_WRITE_TOKEN (conexión clásica).
 // La lógica vive en makeHandler({ blob, env }) para poder probarla con un Blob en memoria (test/api.test.js); el export default usa el real.
 
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -90,11 +91,12 @@ export function makeHandler({ blob, env = process.env, now = () => Date.now() })
     };
     try {
       const clave = String(env.MC_CLAVE || '').trim();
-      if (clave.length < MIN_CLAVE || !env.BLOB_READ_WRITE_TOKEN) {
+      const hayBlob = Boolean(env.BLOB_STORE_ID || env.BLOB_READ_WRITE_TOKEN);
+      if (clave.length < MIN_CLAVE || !hayBlob) {
         // Solo nombres de lo que falta configurar (nunca valores): sirve para diagnosticar el panel de Vercel.
         const falta = [];
         if (clave.length < MIN_CLAVE) falta.push('MC_CLAVE');
-        if (!env.BLOB_READ_WRITE_TOKEN) falta.push('BLOB_READ_WRITE_TOKEN');
+        if (!hayBlob) falta.push('BLOB');
         return send(503, { error: 'sin-nube', falta });
       }
       if (!claveCorrecta(req.headers?.authorization ?? req.headers?.Authorization, clave)) return send(404, { error: 'no-encontrado' });
