@@ -6,6 +6,7 @@ import { demo } from '../../demo.js';
 import { estilos } from '../_ed-style.js';
 import { cajaInstalar, detectarEntorno } from '../_install.js';
 import { hojaRestaurar, mandarCopia } from '../_backup.js';
+import { nubeActiva } from '../_sync-ui.js';
 import { tieneDatos, tieneDatosPropios } from '../_ed-logic.js';
 
 export default {
@@ -42,7 +43,7 @@ export default {
       title: ['Tu plata,', 'clara.'],
       lead: 'Cargá tus números y mirá cómo te va a ir en los próximos meses y cuándo terminás de pagar cada deuda.',
       bullets: [
-        { icon: 'escudo', text: 'Tus datos quedan solo en tu celular.' },
+        { icon: 'escudo', text: nubeActiva(ctx) ? 'Tus datos se guardan en tu celular y los comparte tu familia.' : 'Tus datos quedan solo en tu celular.' },
         { icon: 'tilde', text: 'Sin retos ni culpas: solo números claros.' },
         { icon: 'calendario', text: 'Son unos 10 minutos, y podés frenar y seguir cuando quieras.' },
       ],

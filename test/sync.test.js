@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  captureKey, getKey, forgetKey, shareLink, syncable, canon, hasOwnData, mergeStates, conPreferenciasLocales, leerEstadoRemoto,
+  captureKey, getKey, forgetKey, shareLink, saveKey, keyFromText, syncable, canon, hasOwnData, mergeStates, conPreferenciasLocales, leerEstadoRemoto,
   KEY_STORAGE, META_STORAGE, LOCAL_SETTINGS, DEBOUNCE_MS, POLL_MS, BACKOFF_MS,
 } from '../src/sync.js';
 import { normalize } from '../src/store.js';
@@ -70,6 +70,27 @@ test('shareLink arma el link con la clave en el fragmento y forgetKey desconecta
   forgetKey(e.storage);
   assert.equal(shareLink(e.storage, 'https://ejemplo.vercel.app'), null);
   assert.equal(e.store.has(KEY_STORAGE), false);
+});
+
+test('keyFromText saca la clave de un link pegado (o de la clave suelta) y rechaza lo demás', () => {
+  assert.equal(keyFromText(`https://ejemplo.vercel.app/#k=${KEY}`), KEY);
+  assert.equal(keyFromText(`  https://ejemplo.vercel.app/?k=${KEY}#/hoy \n`), KEY);
+  assert.equal(keyFromText(`https://ejemplo.vercel.app/#k=${encodeURIComponent('con espacio y ñ')}`), null, 'con espacios no sirve');
+  assert.equal(keyFromText(`https://ejemplo.vercel.app/#k=${encodeURIComponent('clave/rara+1')}`), 'clave/rara+1');
+  assert.equal(keyFromText(KEY), KEY);
+  for (const malo of ['', 'hola que tal', 'https://ejemplo.vercel.app/', '#k=ab', null, undefined, 42]) assert.equal(keyFromText(malo), null, String(malo));
+});
+
+test('saveKey guarda, descarta lo sabido si la clave cambia y rechaza claves inservibles', () => {
+  const e = entorno('https://ejemplo.vercel.app/');
+  assert.equal(saveKey(e.storage, 'ab'), false);
+  assert.equal(saveKey(e.storage, KEY), true);
+  e.storage.setItem(META_STORAGE, 'x');
+  assert.equal(saveKey(e.storage, KEY), true);
+  assert.equal(e.storage.getItem(META_STORAGE), 'x');
+  assert.equal(saveKey(e.storage, 'otra-clave-valida-77'), true);
+  assert.equal(e.storage.getItem(META_STORAGE), null);
+  assert.equal(saveKey({ getItem() { throw new Error('x'); }, setItem() { throw new Error('x'); } }, KEY), false);
 });
 
 // ============================================================ puras

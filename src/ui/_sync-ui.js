@@ -3,7 +3,7 @@
 // Lo carga app.js solo si este celular tiene la clave; Más lo importa para mostrar el indicador.
 
 import { h, icon } from './dom.js';
-import { createSync, getKey, shareLink } from '../sync.js';
+import { createSync, getKey, shareLink, saveKey, forgetKey, keyFromText } from '../sync.js';
 
 const storageSeguro = () => { try { return localStorage; } catch { return null; } };
 
@@ -90,6 +90,43 @@ export async function compartirLink(ctx) {
   }
 }
 
+// ---------------------------------------------------------------- conectar / desconectar (por si el link no se pudo abrir en la app instalada)
+/** Pegar el link que te pasaron: el campo es de contraseña, así la clave no se ve en pantalla. */
+export function hojaConectar(ctx) {
+  const { ui } = ctx;
+  const campo = ui.fields.text({ label: 'El link que te pasaron', name: 'link', hint: 'Copialo del mensaje y pegalo acá. No se muestra en pantalla.', placeholder: 'Pegá el link', required: true, requiredMsg: 'Pegá el link que te pasaron.' });
+  campo.input.type = 'password';
+  campo.input.setAttribute('autocapitalize', 'none');
+  campo.input.setAttribute('autocomplete', 'off');
+  campo.input.setAttribute('spellcheck', 'false');
+  const conectar = () => {
+    if (!campo.validate()) return;
+    const k = keyFromText(campo.get());
+    if (!k) { campo.setError('Ese link no parece el correcto. Pedí uno nuevo.'); return; }
+    if (!saveKey(storageSeguro() || { getItem: () => null, setItem() { throw new Error('sin'); } }, k)) { campo.setError('No pudimos guardarlo en este celular.'); return; }
+    location.reload(); // se vuelve a abrir la app ya conectada
+  };
+  return ctx.sheet.open({
+    title: 'Conectar con la nube',
+    render(body) { body.append(h('div', { class: 'stack-4' }, h('p', { class: 't-body' }, 'Con el link de la familia, lo que cargues lo ven los demás y al revés. Tus datos de ahora no se pierden: si hay diferencias, te preguntamos con cuáles seguir.'), campo.el)); },
+    footer: (close) => [ui.btn({ label: 'Conectar', onClick: conectar }), ui.btn({ label: 'Cancelar', variant: 'text', onClick: () => close() })],
+    focus: 'input',
+  });
+}
+
+export async function desconectar(ctx) {
+  const ok = await ctx.sheet.confirm({
+    title: '¿Desconectar este celular de la nube?',
+    message: 'Tus datos se quedan acá, pero dejan de compartirse: lo que cargues no lo van a ver los demás y lo que ellos carguen no te va a llegar. Para volver a conectarte necesitás el link.',
+    confirmLabel: 'Sí, desconectar', cancelLabel: 'No, dejar todo como está', tone: 'bad',
+  });
+  if (!ok) return;
+  try { ctx.sync?.stop(); } catch { /* nada */ }
+  const s = storageSeguro();
+  if (s) forgetKey(s);
+  location.reload();
+}
+
 // ---------------------------------------------------------------- tarjeta de la nube (Más > Tus datos)
 export function tarjetaNube(ctx) {
   const { ui } = ctx;
@@ -99,9 +136,13 @@ export function tarjetaNube(ctx) {
   if (st.code === 'decidir' || st.code === 'invalido') {
     acciones.push(ui.btn({ label: 'Elegir con qué datos seguir', icon: 'llave', onClick: () => ctx.sync?.decidir() }));
   }
+  if (!activa || st.code === 'clave') {
+    acciones.push(ui.btn({ label: 'Conectar con el link de la familia', variant: activa ? 'secondary' : 'primary', icon: 'llave', onClick: () => hojaConectar(ctx) }));
+  }
   if (activa) {
     acciones.push(ui.btn({ label: 'Revisar ahora', variant: 'secondary', icon: 'reloj', onClick: async () => { await ctx.sync?.poll({ forzar: true }); } }));
     acciones.push(ui.btn({ label: 'Compartir el link con tu familia', variant: 'secondary', icon: 'compartir', onClick: () => compartirLink(ctx) }));
+    acciones.push(ui.btn({ label: 'Desconectar este celular', variant: 'text', onClick: () => desconectar(ctx) }));
   }
   return ui.card(h('div', { class: 'stack-3' },
     h('h2', { class: 't-h2' }, 'La nube'),
@@ -187,7 +228,7 @@ export function startSync(ctx, { applyState }) {
     choose: (info) => hojaDecision(ctx, info),
     conflict: (info) => hojaDecision(ctx, info),
     notify: (kind) => { const a = AVISOS[kind]; if (a) ctx.toast(a[0], { duration: a[1] }); },
-    canApply: () => !ctx.sheet.isOpen() && !escribiendo(),
+    canApply: () => !ctx.sheet.isOpen() && !escribiendo() && !document.querySelector('#toast-root .toast-action'), // ni encima de un "Deshacer" a la vista
     isVisible: () => document.visibilityState === 'visible',
     onStatus: pintarTodo,
   });

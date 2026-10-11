@@ -61,7 +61,29 @@ export function conPreferenciasLocales(remoto, local, today = new Date()) {
 }
 
 // ---------------------------------------------------------------- clave en el link
-const clavePosible = (s) => typeof s === 'string' && /^\S{4,256}$/.test(s);
+const clavePosible = (s) => typeof s === 'string' && /^\S{8,256}$/.test(s);
+
+/** Guarda la clave (si cambió, se descarta lo que se sabía de la nube anterior). Devuelve true si pudo. */
+export function saveKey(storage, clave) {
+  if (!clavePosible(clave)) return false;
+  try {
+    const previa = storage.getItem(KEY_STORAGE);
+    storage.setItem(KEY_STORAGE, clave);
+    if (previa && previa !== clave) storage.removeItem(META_STORAGE);
+    return true;
+  } catch { return false; }
+}
+
+/** Saca la clave de un link pegado (https://.../#k=...) o de la clave suelta. null si no parece una. Nunca se muestra. */
+export function keyFromText(texto) {
+  if (typeof texto !== 'string') return null;
+  const t = texto.trim();
+  const m = /[#?&]k=([^&#\s]+)/.exec(t);
+  let k = null;
+  if (m) { try { k = decodeURIComponent(m[1]); } catch { k = m[1]; } }
+  else if (!/[/:#?&=\s]/.test(t)) k = t;
+  return clavePosible(k) ? k : null;
+}
 
 /**
  * Lee la clave del link (#k=... o ?k=...), la guarda y la borra de la dirección. Se llama ANTES de que arranque el router.
@@ -88,14 +110,7 @@ export function captureKey({ location, history, storage }) {
   }
   if (!limpiar) return { capturada: false };
   let capturada = false;
-  if (clavePosible(encontrada)) {
-    try {
-      const previa = storage.getItem(KEY_STORAGE);
-      storage.setItem(KEY_STORAGE, encontrada);
-      if (previa && previa !== encontrada) storage.removeItem(META_STORAGE);
-      capturada = true;
-    } catch { /* sin almacenamiento: la app sigue solo en el celular */ }
-  }
+  if (saveKey(storage, encontrada)) capturada = true;
   try { history.replaceState(history.state, '', location.pathname + search + hash); } catch { /* nada */ }
   return { capturada };
 }
